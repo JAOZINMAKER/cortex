@@ -1,10 +1,12 @@
 'use strict';
-// Vigilância: chokidar por fonte, com debounce de 1,5 s. Avisa quais caminhos mudaram.
+// Vigilância: chokidar por fonte, com debounce de 1,5 s (git: 4 s; teto de 10 s sob atividade contínua).
 const chokidar = require('chokidar');
 const path = require('path');
 const fs = require('fs');
 
 const DEBOUNCE = 1500;
+const DEBOUNCE_GIT = 4000;
+const MAX_ESPERA = 10000;
 const vigias = new Map(); // fonteId -> { w, timer, mudancas }
 
 function alvos(fonte) {
@@ -56,12 +58,17 @@ function vigiar(fonte, aoMudar) {
     if (fonte.tipo === 'obsidian' && !p.toLowerCase().endsWith('.md') && tipo !== 'addDir' && tipo !== 'unlinkDir') return;
     if (fonte.tipo === 'claude' && !p.endsWith('.jsonl')) return;
     reg.mudancas.set(p, tipo);
+    if (!reg.primeira) reg.primeira = Date.now();
     clearTimeout(reg.timer);
+    // git escreve vários refs por operação: espera mais. MAX_ESPERA garante que atividade contínua ainda redesenha.
+    const espera = fonte.tipo === 'git' ? DEBOUNCE_GIT : DEBOUNCE;
+    const resta = Math.max(0, MAX_ESPERA - (Date.now() - reg.primeira));
     reg.timer = setTimeout(() => {
       const m = [...reg.mudancas.entries()].map(([caminho, t]) => ({ caminho, tipo: t }));
       reg.mudancas.clear();
+      reg.primeira = 0;
       aoMudar(fonte, m);
-    }, DEBOUNCE);
+    }, Math.min(espera, resta));
   };
   for (const ev of ['add', 'change', 'unlink', 'addDir', 'unlinkDir']) w.on(ev, marcar(ev));
   w.on('error', () => { /* pastas que somem não derrubam o app */ });

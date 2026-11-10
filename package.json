@@ -1,0 +1,21 @@
+{
+  "name": "cortex",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CORTEX — segundo cérebro local",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "snapshot": "node server/snapshot.js",
+    "shots": "node tools/shots.js",
+    "bench": "node tools/bench.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "chokidar": "3.6.0",
+    "ws": "8.18.0",
+    "three": "0.169.0",
+    "marked": "14.1.2",
+    "@fontsource-variable/martian-mono": "5.1.0"
+  }
+}
