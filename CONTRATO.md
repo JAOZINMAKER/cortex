@@ -133,15 +133,19 @@ FonteStatus = { id, tipo, caminho, projeto, status: "OK"|"AUSENTE"|"ERRO"|"LENDO
 - `status` → a cada 1 s: `{ cpu: number /*% do processo*/, memMB: number, fila: number, uptime: number, eventosSeg: number }`
 - `maquina` → a cada 2 s: o mesmo formato de `/api/maquina` sem telemetria
 
-## Tokens visuais (direção escolhida: "TERMINAL DE ALARME")
-```css
---preto: #050505; --concreto: #121212; --grade: #1f1f1f; --linha: #2e2e2e;
---branco: #f2f2ee; --cinza: #8a8a86; --apagado: #4a4a48;
---vermelho: #ff2a1a; --ciano: #5ee6ff;   /* ciano só para dados frios/seleção secundária */
+## Tokens visuais (sistema de temas; padrão "grafite")
+A única fonte de cor é `web/js/tema.js` (`TEMAS`). Não deixar nenhuma cor fixa em CSS, canvas, rótulos, shaders ou na paleta de clusters.
+```text
+tokens de interface: fundo painel grade linha texto cinza apagado acento maquina alerta  → CSS: var(--<token>) no :root
+tokens 3D:           obsidian git claude pasta dia                                       → tema.d3() (RGB 0..1, derivados)
+grafite: fundo #0c0c0b painel #141413 grade #22211e linha #33312c texto #ece8df cinza #8f8a80 apagado #55524b
+         acento #ff6a2b maquina #9fb4c7 alerta #ff6a2b · 3D obsidian #ece8df git #ff6a2b claude #9fb4c7 pasta #8f8a80 dia #7a3a1e
+outros: ambar · mono · violeta (valores em tema.js)
 fonte: "Martian Mono Variable"; números gigantes: font-stretch 75%, peso 800; rótulos: caixa alta, letter-spacing .08em.
-zero border-radius; bordas 1px sólidas; scanlines e ruído como overlay fixo.
+zero border-radius; bordas 1px sólidas; scanlines e ruído sutis.
 ```
-Cores por fonte no 3D: obsidian = branco, git = vermelho, claude = ciano, pasta = cinza, dia/sistema = vermelho escuro.
+Troca: `tema.aplicar(nome)` dispara `aoTrocar`; o 3D refaz os buffers de cor (`Cerebro.aplicarTema`). Pela interface: tecla T, Ctrl+K → "tema", `?tema=nome` e localStorage `cortex.tema`.
+O **acento** é raro (alertas, pulsos, destaques); **maquina** marca o que é da IA; **alerta** só aparece em erro ou AUSENTE.
 
 ## Desempenho
 Meta: 20.000 neurônios e 60.000 sinapses a 60 fps. Neurônios desenhados num único `THREE.Points` com shader; sinapses num único `LineSegments`; pulsos num `Points` de buffer fixo. Rótulos em DOM limitados por orçamento (no máximo ~180 visíveis), escolhidos por proximidade da câmera e importância. `tools/bench.js` gera um grafo sintético **só para benchmark** (`?bench=20000`), nunca misturado com dados reais.

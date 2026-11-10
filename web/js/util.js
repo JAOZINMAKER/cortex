@@ -12,8 +12,8 @@ export const fmtRel = t => { if (!t) return '—'; const s = (Date.now() - t) / 
 export const FONTE_ROT = { obsidian: 'OBS', git: 'GIT', claude: 'IA', pasta: 'PST', sistema: 'SYS' };
 export const TIPO_ROT = { nota: 'NOTA', commit: 'COMMIT', branch: 'BRANCH', worktree: 'WTREE', sessao: 'SESSÃO', arquivo: 'ARQ', doc: 'DOC', dia: 'DIA' };
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
-export function spark(vals, w = 56, h = 12, cor = '#f2f2ee') {
+export function spark(vals, w = 56, h = 12) {
   const m = Math.max(1, ...vals); const bw = w / vals.length;
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` + vals.map((v, i) => { const bh = Math.max(1, (v / m) * h); return `<rect x="${(i * bw).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${(bw - 1).toFixed(1)}" height="${bh.toFixed(1)}" fill="${i === vals.length - 1 ? '#ff2a1a' : cor}"/>`; }).join('') + '</svg>';
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` + vals.map((v, i) => { const bh = Math.max(1, (v / m) * h); return `<rect x="${(i * bw).toFixed(1)}" y="${(h - bh).toFixed(1)}" width="${(bw - 1).toFixed(1)}" height="${bh.toFixed(1)}" class="sp${i === vals.length - 1 ? ' u' : ''}"/>`; }).join('') + '</svg>';
 }
 export function hash6(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0').slice(0, 6); }

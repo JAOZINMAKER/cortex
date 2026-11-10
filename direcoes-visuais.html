@@ -3,321 +3,66 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CÓRTEX — Direções visuais</title>
+<title>CÓRTEX — Temas</title>
 <style>
-@font-face{
-  font-family:"Martian Mono Variable";
-  src:url("node_modules/@fontsource-variable/martian-mono/files/martian-mono-latin-wdth-normal.woff2") format("woff2-variations");
-  font-weight:100 800; font-stretch:75% 112.5%; font-display:swap;
-}
-:root{
-  --preto:#050505; --concreto:#121212; --grade:#1f1f1f; --linha:#2e2e2e;
-  --branco:#f2f2ee; --cinza:#8a8a86; --apagado:#4a4a48;
-  --vermelho:#ff2a1a; --ciano:#5ee6ff;
-  --mono:"Martian Mono Variable", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-}
-*{box-sizing:border-box;border-radius:0!important;margin:0;padding:0}
-html,body{background:var(--preto);color:var(--branco)}
-body{font-family:var(--mono);font-size:11px;letter-spacing:.04em;min-height:100vh;padding:22px 24px 26px;
-  background-image:linear-gradient(var(--grade) 1px,transparent 1px),linear-gradient(90deg,var(--grade) 1px,transparent 1px);
-  background-size:48px 48px;background-position:-1px -1px}
-.up{text-transform:uppercase;letter-spacing:.08em}
-/* cabeçalho */
-header{display:grid;grid-template-columns:auto 1fr auto;align-items:end;gap:24px;border-bottom:1px solid var(--branco);padding-bottom:10px;margin-bottom:14px}
-header h1{font-size:64px;line-height:.82;font-weight:800;font-stretch:75%;letter-spacing:-.01em}
-header h1 span{color:var(--vermelho)}
-header .meio{color:var(--cinza);font-size:10px;line-height:1.6;align-self:end}
-header .meio b{color:var(--branco);font-weight:600}
-header .dir{text-align:right;font-size:10px;line-height:1.6;color:var(--cinza)}
-header .dir .blink{color:var(--vermelho)}
-@keyframes pisca{50%{opacity:0}} .blink{animation:pisca 1s steps(1) infinite}
-/* grade de painéis */
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.painel{position:relative;border:1px solid var(--linha);overflow:hidden;display:flex;flex-direction:column;min-height:620px}
-.painel .topo{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;font-size:10px;border-bottom:1px solid currentColor}
-.painel .titulo{padding:10px 10px 4px}
-.painel .titulo .letra{font-size:13px;opacity:.7}
-.painel .titulo h2{font-size:38px;line-height:.9;font-weight:800;font-stretch:75%;margin-top:2px}
-.painel .titulo p{font-size:10px;margin-top:6px;line-height:1.5;opacity:.75;max-width:92%}
-.cena{position:relative;height:300px;margin:8px 10px 0;border:1px solid currentColor}
-.cena canvas{position:absolute;inset:0;width:100%;height:100%}
-.cena .regua{position:absolute;font-size:8px;opacity:.6}
-.cena .rot{position:absolute;font-size:9px;line-height:1.35;padding:3px 5px;border-left:2px solid}
-.cena .rot b{font-size:11px;font-weight:700}
-.cena .rot svg{display:block;margin-top:3px}
-.cena .aviso{position:absolute;left:8px;bottom:7px;font-size:9px}
-.cena .coord{position:absolute;right:8px;top:7px;font-size:8px;text-align:right;line-height:1.5;opacity:.7}
-.contador{display:grid;grid-template-columns:1fr auto;align-items:end;padding:8px 10px 0;gap:8px}
-.contador .num{font-size:66px;line-height:.82;font-weight:800;font-stretch:75%;letter-spacing:-.02em}
-.contador .leg{font-size:9px;text-align:right;line-height:1.5;opacity:.75}
-.log{margin:8px 10px 0;border-top:1px solid currentColor;border-bottom:1px solid currentColor;font-size:9.5px;line-height:1.75;padding:4px 0}
-.log div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.amostras{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;padding:10px;margin-top:auto}
-.paleta{display:grid;grid-template-columns:repeat(5,1fr);border:1px solid currentColor}
-.paleta div{height:46px;position:relative}
-.paleta div span{position:absolute;left:3px;bottom:2px;font-size:7.5px;letter-spacing:.02em}
-.tipo{font-size:9px;line-height:1.5;border:1px solid currentColor;padding:6px 7px}
-.tipo .g{font-size:30px;font-weight:800;font-stretch:75%;line-height:.9}
-.tipo .m{font-size:12px;font-weight:500;font-stretch:100%;margin:3px 0}
-/* overlays */
-.scan::after{content:"";position:absolute;inset:0;pointer-events:none;
-  background:repeating-linear-gradient(to bottom,rgba(255,255,255,.035) 0 1px,transparent 1px 3px)}
-.ruido::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.09;mix-blend-mode:overlay;
-  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
-
-/* A — CONCRETO */
-.A{background:#b9b7b1;color:#0c0c0c;border-color:#0c0c0c}
-.A .topo{background:#0c0c0c;color:#b9b7b1;border-color:#0c0c0c}
-.A .cena{background:#c7c5bf}
-.A .alarme{color:#e0261a}
-.A .rot{border-color:#0c0c0c;background:rgba(199,197,191,.85)}
-.A .ruido::before{opacity:.35;mix-blend-mode:multiply}
-/* B — TERMINAL DE ALARME */
-.B{background:var(--preto);color:var(--branco);border-color:var(--branco);box-shadow:0 0 0 1px var(--vermelho) inset}
-.B .topo{background:var(--vermelho);color:var(--preto);border-color:var(--vermelho);font-weight:700}
-.B .cena{background:#000;border-color:var(--linha);
-  background-image:linear-gradient(var(--grade) 1px,transparent 1px),linear-gradient(90deg,var(--grade) 1px,transparent 1px);background-size:24px 24px}
-.B .alarme{color:var(--vermelho)} .B .frio{color:var(--ciano)} .B .cinza{color:var(--cinza)}
-.B .rot{border-color:var(--vermelho);background:rgba(5,5,5,.82)}
-.B .log{border-color:var(--linha)} .B .tipo,.B .paleta{border-color:var(--linha)}
-/* C — CRIOGÊNICO */
-.C{background:#06101a;color:#dff6ff;border-color:#1d3b4d}
-.C .topo{background:transparent;color:#5ee6ff;border-color:#1d3b4d}
-.C .cena{background:radial-gradient(ellipse at 50% 45%,#0b2233 0%,#050c14 75%);border-color:#1d3b4d}
-.C .titulo h2,.C .contador .num{color:#5ee6ff;text-shadow:0 0 18px rgba(94,230,255,.35)}
-.C .alarme{color:#ff6a5e} .C .frio{color:#5ee6ff}
-.C .rot{border-color:#5ee6ff;background:rgba(6,16,26,.8)}
-.C .log,.C .tipo,.C .paleta{border-color:#1d3b4d}
-
-/* escolha */
-.escolha{margin-top:14px;display:grid;grid-template-columns:300px 1fr 260px;border:1px solid var(--branco);background:var(--preto)}
-.escolha .tag{background:var(--vermelho);color:var(--preto);padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between}
-.escolha .tag small{font-size:10px;font-weight:700}
-.escolha .tag div{font-size:46px;line-height:.86;font-weight:800;font-stretch:75%}
-.escolha .texto{padding:14px 18px;font-size:11.5px;line-height:1.7;color:var(--branco);letter-spacing:.01em}
-.escolha .texto p+p{margin-top:4px}
-.escolha .texto em{font-style:normal;color:var(--vermelho)}
-.escolha .texto i{font-style:normal;color:var(--ciano)}
-.escolha .meta{border-left:1px solid var(--linha);padding:14px 16px;font-size:9.5px;line-height:1.8;color:var(--cinza)}
-.escolha .meta b{color:var(--branco);font-weight:600}
-footer{margin-top:10px;display:flex;justify-content:space-between;font-size:9px;color:var(--apagado)}
+@font-face{font-family:"Martian Mono Variable";src:url("node_modules/@fontsource-variable/martian-mono/files/martian-mono-latin-wdth-normal.woff2") format("woff2-variations");font-weight:100 800;font-stretch:75% 112.5%;font-display:swap}
+:root{--fundo:#0c0c0b;--painel:#141413;--linha:#33312c;--texto:#ece8df;--cinza:#8f8a80;--apagado:#55524b;--acento:#ff6a2b}
+*{box-sizing:border-box;border-radius:0}
+body{margin:0;background:var(--fundo);color:var(--texto);font-family:"Martian Mono Variable",ui-monospace,Consolas,monospace;font-stretch:87.5%;font-size:12px;padding:28px 32px 40px}
+h1{font-size:44px;font-weight:800;font-stretch:75%;margin:0;letter-spacing:-.01em}
+.sub{color:var(--cinza);font-size:10px;letter-spacing:.1em;margin:6px 0 24px}
+.grade{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
+.card{border:1px solid var(--linha);background:var(--painel)}
+.card.esc{border:2px solid var(--acento)}
+.cab{display:flex;justify-content:space-between;align-items:baseline;padding:10px 12px;border-bottom:1px solid var(--linha)}
+.cab h2{margin:0;font-size:22px;font-weight:800;font-stretch:75%}
+.cab span{font-size:9px;color:var(--cinza);letter-spacing:.1em}
+img{display:block;width:100%;height:auto;border-bottom:1px solid var(--linha)}
+.grp{font-size:8.5px;letter-spacing:.14em;color:var(--apagado);padding:8px 12px 2px}
+.tks{display:grid;grid-template-columns:repeat(5,1fr);gap:4px 8px;padding:4px 12px 10px}
+.tk{display:grid;grid-template-columns:12px 1fr;column-gap:6px;font-size:9px;line-height:12px}
+.tk i{grid-row:span 2;width:12px;height:24px;border:1px solid var(--linha)}
+.tk span{color:var(--cinza)}.tk b{font-weight:400}
+.escolha{margin-top:24px;border:2px solid var(--acento);padding:16px 18px;max-width:1100px}
+.escolha h3{margin:0 0 10px;font-size:26px;font-weight:800;font-stretch:75%;color:var(--acento)}
+.escolha p{margin:0 0 6px;font-size:12px;line-height:18px}
+@media (max-width:900px){.grade{grid-template-columns:1fr}.tks{grid-template-columns:repeat(3,1fr)}}
 </style>
 </head>
 <body>
-
-<header>
-  <h1 class="up">CÓRTEX<span>/</span>DIR</h1>
-  <div class="meio up">
-    <b>FOLHA DE DIREÇÕES VISUAIS</b> · DOC-CX-0001 · REV 03<br>
-    MESMA COMPOSIÇÃO EM TRÊS LINGUAGENS: CENA DO CÉREBRO, CONTADOR, LOG, RÓTULO DE REGIÃO, PALETA E TIPOGRAFIA
-  </div>
-  <div class="dir up">
-    FONTE: MARTIAN MONO VARIABLE · WDTH 75–112<br>
-    STATUS <span class="blink">■</span> AVALIAÇÃO CONCLUÍDA
-  </div>
-</header>
-
-<div class="grid">
-
-  <!-- A -->
-  <section class="painel A ruido" data-dir="A">
-    <div class="topo up"><span>DIR-A · SN 0x0A41</span><span>CARTAZ INDUSTRIAL</span></div>
-    <div class="titulo">
-      <div class="letra up">A —</div>
-      <h2 class="up">CONCRETO</h2>
-      <p class="up">TINTA PRETA SOBRE CINZA DE OBRA. VERMELHO SÓ COMO ALARME. PARECE IMPRESSO.</p>
-    </div>
-    <div class="cena"><canvas></canvas>
-      <div class="coord up">X 0412.8<br>Y -118.0<br>Z 0090.3</div>
-      <div class="rot up" style="left:12px;top:14px"><b>GLASS-PETS</b><br>RG-0007 · 1.284 N · 3.911 S<br>ÚLT. PULSO 00:00:04<svg width="96" height="14" data-spark></svg></div>
-      <div class="aviso up"><span class="alarme">■</span> PROCESSANDO 14.392 REGISTROS</div>
-    </div>
-    <div class="contador">
-      <div class="num">06.498</div>
-      <div class="leg up">NEURÔNIOS<br>ATIVOS<br><span class="alarme">+212 / 24H</span></div>
-    </div>
-    <div class="log up">
-      <div>14:51:07.204 · PULSO · GIT · a3f91c · COMMIT EM GLASS-PETS</div>
-      <div>14:51:07.611 · INFO · OBS · 7d02e1 · NOTA ALTERADA wiki/pets.md</div>
-      <div><span class="alarme">14:51:08.002 · ALERTA · FILA 0038 REGISTROS</span></div>
-    </div>
-    <div class="amostras">
-      <div class="paleta up">
-        <div style="background:#b9b7b1"><span>B9B7B1</span></div>
-        <div style="background:#c7c5bf"><span>C7C5BF</span></div>
-        <div style="background:#6d6b66;color:#ddd"><span>6D6B66</span></div>
-        <div style="background:#0c0c0c;color:#b9b7b1"><span>0C0C0C</span></div>
-        <div style="background:#e0261a;color:#0c0c0c"><span>E0261A</span></div>
-      </div>
-      <div class="tipo"><div class="g">08.311</div><div class="m">Aa Mono 500</div><span class="up">RÓTULO · +.08EM</span></div>
-    </div>
-  </section>
-
-  <!-- B -->
-  <section class="painel B scan" data-dir="B">
-    <div class="topo up"><span>DIR-B · SN 0x0B07</span><span>■ RECOMENDADA</span></div>
-    <div class="titulo">
-      <div class="letra up cinza">B —</div>
-      <h2 class="up">TERMINAL DE ALARME</h2>
-      <p class="up">PRETO ABSOLUTO, BRANCO OSSO, VERMELHO DE ALERTA, CIANO SÓ PARA A MÁQUINA.</p>
-    </div>
-    <div class="cena"><canvas></canvas>
-      <div class="coord up cinza">X 0412.8<br>Y -118.0<br>Z 0090.3</div>
-      <div class="rot up" style="left:12px;top:14px"><b>GLASS-PETS</b><br><span class="cinza">RG-0007 · 1.284 N · 3.911 S</span><br>ÚLT. PULSO <span class="alarme">00:00:04</span><svg width="96" height="14" data-spark></svg></div>
-      <div class="aviso up"><span class="alarme blink">■</span> PROCESSANDO 14.392 REGISTROS<span class="blink">_</span></div>
-    </div>
-    <div class="contador">
-      <div class="num">06.498</div>
-      <div class="leg up cinza">NEURÔNIOS<br>ATIVOS<br><span class="alarme">+212 / 24H</span></div>
-    </div>
-    <div class="log up">
-      <div><span class="cinza">14:51:07.204 ·</span> <span class="alarme">PULSO</span> · GIT · a3f91c · COMMIT EM GLASS-PETS</div>
-      <div><span class="cinza">14:51:07.611 ·</span> INFO · OBS · 7d02e1 · NOTA ALTERADA wiki/pets.md</div>
-      <div><span class="cinza">14:51:08.002 ·</span> <span class="frio">MÁQ</span> · CLASSIFICOU 12 · TAGS [DESIGN, CÓDIGO]</div>
-    </div>
-    <div class="amostras">
-      <div class="paleta up">
-        <div style="background:#050505;outline:1px solid #2e2e2e;outline-offset:-1px;color:#8a8a86"><span>050505</span></div>
-        <div style="background:#1f1f1f;color:#8a8a86"><span>1F1F1F</span></div>
-        <div style="background:#f2f2ee;color:#050505"><span>F2F2EE</span></div>
-        <div style="background:#ff2a1a;color:#050505"><span>FF2A1A</span></div>
-        <div style="background:#5ee6ff;color:#050505"><span>5EE6FF</span></div>
-      </div>
-      <div class="tipo"><div class="g">08.311</div><div class="m">Aa Mono 500</div><span class="cinza up">RÓTULO · +.08EM</span></div>
-    </div>
-  </section>
-
-  <!-- C -->
-  <section class="painel C scan" data-dir="C">
-    <div class="topo up"><span>DIR-C · SN 0x0C19</span><span>LABORATÓRIO</span></div>
-    <div class="titulo">
-      <div class="letra up">C —</div>
-      <h2 class="up">CRIOGÊNICO</h2>
-      <p class="up">PRETO-AZULADO, CIANO DOMINANTE, BRANCO FRIO. VERMELHO QUASE AUSENTE.</p>
-    </div>
-    <div class="cena"><canvas></canvas>
-      <div class="coord up">X 0412.8<br>Y -118.0<br>Z 0090.3</div>
-      <div class="rot up" style="left:12px;top:14px"><b class="frio">GLASS-PETS</b><br>RG-0007 · 1.284 N · 3.911 S<br>ÚLT. PULSO 00:00:04<svg width="96" height="14" data-spark></svg></div>
-      <div class="aviso up frio">◇ PROCESSANDO 14.392 REGISTROS</div>
-    </div>
-    <div class="contador">
-      <div class="num">06.498</div>
-      <div class="leg up">NEURÔNIOS<br>ATIVOS<br><span class="frio">+212 / 24H</span></div>
-    </div>
-    <div class="log up">
-      <div>14:51:07.204 · <span class="frio">PULSO</span> · GIT · a3f91c · COMMIT EM GLASS-PETS</div>
-      <div>14:51:07.611 · INFO · OBS · 7d02e1 · NOTA ALTERADA wiki/pets.md</div>
-      <div>14:51:08.002 · <span class="alarme">ALERTA</span> · FILA 0038 REGISTROS</div>
-    </div>
-    <div class="amostras">
-      <div class="paleta up">
-        <div style="background:#06101a;color:#5d8aa0"><span>06101A</span></div>
-        <div style="background:#0b2233;color:#5d8aa0"><span>0B2233</span></div>
-        <div style="background:#dff6ff;color:#06101a"><span>DFF6FF</span></div>
-        <div style="background:#5ee6ff;color:#06101a"><span>5EE6FF</span></div>
-        <div style="background:#ff6a5e;color:#06101a"><span>FF6A5E</span></div>
-      </div>
-      <div class="tipo"><div class="g frio">08.311</div><div class="m">Aa Mono 500</div><span class="up">RÓTULO · +.08EM</span></div>
-    </div>
-  </section>
-</div>
-
-<section class="escolha">
-  <div class="tag up"><small>DECISÃO · DEC-001</small><div>ESCOLHA:<br><span style="font-size:96px;line-height:.8">B</span></div></div>
-  <div class="texto">
-    <p>A B mantém o contraste máximo para dados densos no 3D, porque luz sobre preto lê melhor que pontos escuros sobre concreto quando há milhares de neurônios na tela.</p>
-    <p>O <em>vermelho</em> funciona como alerta por ser raro: aparece só em pulsos, commits e avisos, então o olho vai direto para o que mudou.</p>
-    <p>O <i>ciano</i> fica reservado para o que é da máquina e da IA (sessões do Claude e tags da máquina), separando a interpretação dela do texto original.</p>
-    <p>A A é bonita como cartaz, mas perde legibilidade com milhares de pontos e não brilha. A C é elegante, mas parece ficção científica genérica e intimida menos.</p>
-  </div>
-  <div class="meta up">
-    <b>TOKENS APLICADOS</b><br>
-    FUNDO 050505 · GRADE 1F1F1F<br>
-    TEXTO F2F2EE · APOIO 8A8A86<br>
-    ALERTA FF2A1A · MÁQUINA 5EE6FF<br>
-    RAIO 0 · BORDA 1PX SÓLIDA<br>
-    NÚMEROS WDTH 75 · PESO 800
-  </div>
+<h1>CÓRTEX // TEMAS</h1>
+<div class="sub">4 TEMAS · IMAGENS REAIS DO APP (CÉREBRO INTEIRO) · TODAS AS CORES SAEM DE web/js/tema.js · TROCA: TECLA T, CTRL+K → "TEMA", ?tema=NOME</div>
+<div class="grade">
+<section class="card esc">
+  <div class="cab"><h2>GRAFITE</h2><span>INDUSTRIAL QUENTE, PAINEL DE INSTRUMENTO · PADRÃO</span></div>
+  <img src="docs/temas/grafite.png" alt="CÓRTEX no tema GRAFITE, cérebro inteiro">
+  <div class="grp">INTERFACE</div><div class="tks"><div class="tk"><i style="background:#0c0c0b"></i><span>fundo</span><b>#0c0c0b</b></div><div class="tk"><i style="background:#141413"></i><span>painel</span><b>#141413</b></div><div class="tk"><i style="background:#22211e"></i><span>grade</span><b>#22211e</b></div><div class="tk"><i style="background:#33312c"></i><span>linha</span><b>#33312c</b></div><div class="tk"><i style="background:#ece8df"></i><span>texto</span><b>#ece8df</b></div><div class="tk"><i style="background:#8f8a80"></i><span>cinza</span><b>#8f8a80</b></div><div class="tk"><i style="background:#55524b"></i><span>apagado</span><b>#55524b</b></div><div class="tk"><i style="background:#ff6a2b"></i><span>acento</span><b>#ff6a2b</b></div><div class="tk"><i style="background:#9fb4c7"></i><span>maquina</span><b>#9fb4c7</b></div><div class="tk"><i style="background:#ff6a2b"></i><span>alerta</span><b>#ff6a2b</b></div></div>
+  <div class="grp">3D POR FONTE</div><div class="tks"><div class="tk"><i style="background:#ece8df"></i><span>obsidian</span><b>#ece8df</b></div><div class="tk"><i style="background:#ff6a2b"></i><span>git</span><b>#ff6a2b</b></div><div class="tk"><i style="background:#9fb4c7"></i><span>claude</span><b>#9fb4c7</b></div><div class="tk"><i style="background:#8f8a80"></i><span>pasta</span><b>#8f8a80</b></div><div class="tk"><i style="background:#7a3a1e"></i><span>dia</span><b>#7a3a1e</b></div></div>
 </section>
-
-<footer class="up"><span>CÓRTEX · SEGUNDO CÉREBRO LOCAL · NADA SAI DA MÁQUINA</span><span>REF. CONCEITUAL: CÉREBRO QUE CRESCE DO TRONCO · IDENTIDADE PRÓPRIA</span></footer>
-
-<script>
-// PRNG determinístico
-function rng(seed){let s=seed>>>0;return()=>{s=(s+0x6D2B79F5)>>>0;let t=s;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296}}
-const TEMAS={
-  A:{bg:null,pt:['rgba(12,12,12,.85)','rgba(12,12,12,.45)','rgba(12,12,12,.25)'],ln:'rgba(12,12,12,.16)',hot:'#e0261a',spine:'rgba(12,12,12,.55)',glow:false,spark:'#0c0c0c'},
-  B:{bg:null,pt:['rgba(242,242,238,.95)','rgba(242,242,238,.5)','rgba(94,230,255,.85)'],ln:'rgba(242,242,238,.09)',hot:'#ff2a1a',spine:'rgba(255,42,26,.7)',glow:true,spark:'#ff2a1a'},
-  C:{bg:null,pt:['rgba(94,230,255,.95)','rgba(223,246,255,.55)','rgba(94,230,255,.35)'],ln:'rgba(94,230,255,.12)',hot:'#5ee6ff',spine:'rgba(94,230,255,.6)',glow:true,spark:'#5ee6ff'}
-};
-function desenhar(painel){
-  const dir=painel.dataset.dir, T=TEMAS[dir], cv=painel.querySelector('canvas');
-  const r=cv.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
-  cv.width=r.width*dpr; cv.height=r.height*dpr;
-  const g=cv.getContext('2d'); g.scale(dpr,dpr);
-  const W=r.width,H=r.height, R=rng(7331);
-  const cx=W*0.55, cy=H*0.42, rx=W*0.36, ry=H*0.33;
-  const pts=[];
-  // hemisférios com giros
-  for(let i=0;i<900;i++){
-    const hem=R()<.5?-1:1;
-    const a=R()*Math.PI*2, d=Math.pow(R(),.55);
-    const giro=1+0.06*Math.sin(a*9+hem*2)+0.04*Math.sin(a*17);
-    let x=Math.cos(a)*rx*0.5*d*giro, y=Math.sin(a)*ry*d*giro;
-    x=cx+hem*(rx*0.5+6)+x*0.98; y=cy+y;
-    if(y>cy+ry*0.55 && Math.abs(x-cx)<rx*0.25) continue;
-    pts.push([x,y,d,hem]);
-  }
-  // cerebelo
-  for(let i=0;i<140;i++){const a=R()*Math.PI*2,d=Math.sqrt(R());pts.push([cx+rx*0.55+Math.cos(a)*rx*0.22*d,cy+ry*0.72+Math.sin(a)*ry*0.18*d,d,1]);}
-  // tronco + espinha
-  const spine=[];
-  for(let i=0;i<46;i++){const t=i/45;spine.push([cx+rx*0.18+Math.sin(t*2.2)*6, cy+ry*0.45+t*(H-cy-ry*0.45-6)]);}
-  // sinapses
-  g.lineWidth=.6; g.strokeStyle=T.ln; g.beginPath();
-  for(let i=0;i<pts.length;i++){
-    for(let k=0;k<2;k++){
-      const j=(i+1+Math.floor(R()*24))%pts.length, p=pts[i],q=pts[j];
-      if(Math.hypot(p[0]-q[0],p[1]-q[1])<60){g.moveTo(p[0],p[1]);g.lineTo(q[0],q[1]);}
-    }
-  }
-  g.stroke();
-  // espinha
-  g.strokeStyle=T.spine; g.lineWidth=1; g.beginPath();
-  spine.forEach((s,i)=>i?g.lineTo(s[0],s[1]):g.moveTo(s[0],s[1])); g.stroke();
-  g.fillStyle=T.spine; spine.forEach((s,i)=>{if(i%3===0)g.fillRect(s[0]-3,s[1]-1,6,2)});
-  // pontos
-  pts.forEach((p,i)=>{
-    const c=p[2]>.85?T.pt[0]:(i%11===0?T.pt[2]:T.pt[1]);
-    const s=p[2]>.9?1.8:1.1;
-    g.fillStyle=c; g.fillRect(p[0]-s/2,p[1]-s/2,s,s);
-  });
-  // pulsos quentes + caminho
-  const hot=[pts[40],pts[210],pts[333],pts[512],pts[700]];
-  g.strokeStyle=T.hot; g.lineWidth=1.2; g.beginPath();
-  hot.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1])); g.stroke();
-  hot.forEach(p=>{
-    if(T.glow){const gr=g.createRadialGradient(p[0],p[1],0,p[0],p[1],14);gr.addColorStop(0,T.hot);gr.addColorStop(1,'transparent');g.fillStyle=gr;g.globalAlpha=.55;g.fillRect(p[0]-14,p[1]-14,28,28);g.globalAlpha=1;}
-    g.fillStyle=T.hot; g.fillRect(p[0]-2.5,p[1]-2.5,5,5);
-  });
-  // foco: retículo
-  const f=hot[2]; g.strokeStyle=T.hot; g.lineWidth=1;
-  g.strokeRect(f[0]-11,f[1]-11,22,22);
-  g.beginPath();g.moveTo(f[0]-24,f[1]);g.lineTo(f[0]-13,f[1]);g.moveTo(f[0]+13,f[1]);g.lineTo(f[0]+24,f[1]);g.stroke();
-  g.font='600 9px "Martian Mono Variable", monospace'; g.fillStyle=T.hot;
-  g.fillText('N-7D02E1 · GRAU 14',f[0]+28,f[1]+3);
-  // réguas
-  g.fillStyle=T.pt[1]; for(let x=0;x<W;x+=12){g.fillRect(x,0,1,x%60===0?7:3);g.fillRect(x,H-(x%60===0?7:3),1,7);}
-  for(let y=0;y<H;y+=12){g.fillRect(0,y,y%60===0?7:3,1);g.fillRect(W-(y%60===0?7:3),y,7,1);}
-  // minigráfico
-  painel.querySelectorAll('svg[data-spark]').forEach(svg=>{
-    const v=[3,7,4,11,6,14,9];const w=96,h=14,bw=w/v.length;
-    svg.innerHTML=v.map((n,i)=>`<rect x="${i*bw+1}" y="${h-n}" width="${bw-3}" height="${n}" fill="${i===6?T.hot:T.spark}" opacity="${i===6?1:.55}"/>`).join('');
-  });
-}
-function tudo(){document.querySelectorAll('.painel').forEach(desenhar)}
-(document.fonts?document.fonts.ready:Promise.resolve()).then(tudo);
-addEventListener('resize',tudo);
-</script>
+<section class="card">
+  <div class="cab"><h2>ÂMBAR</h2><span>FÓSFORO CRT MONOCROMÁTICO</span></div>
+  <img src="docs/temas/ambar.png" alt="CÓRTEX no tema ÂMBAR, cérebro inteiro">
+  <div class="grp">INTERFACE</div><div class="tks"><div class="tk"><i style="background:#0a0806"></i><span>fundo</span><b>#0a0806</b></div><div class="tk"><i style="background:#120e0a"></i><span>painel</span><b>#120e0a</b></div><div class="tk"><i style="background:#241c13"></i><span>grade</span><b>#241c13</b></div><div class="tk"><i style="background:#3a2d1e"></i><span>linha</span><b>#3a2d1e</b></div><div class="tk"><i style="background:#f3d9b1"></i><span>texto</span><b>#f3d9b1</b></div><div class="tk"><i style="background:#a08560"></i><span>cinza</span><b>#a08560</b></div><div class="tk"><i style="background:#5e4c36"></i><span>apagado</span><b>#5e4c36</b></div><div class="tk"><i style="background:#ffa23a"></i><span>acento</span><b>#ffa23a</b></div><div class="tk"><i style="background:#ffd58a"></i><span>maquina</span><b>#ffd58a</b></div><div class="tk"><i style="background:#ff5a36"></i><span>alerta</span><b>#ff5a36</b></div></div>
+  <div class="grp">3D POR FONTE</div><div class="tks"><div class="tk"><i style="background:#f3d9b1"></i><span>obsidian</span><b>#f3d9b1</b></div><div class="tk"><i style="background:#ffa23a"></i><span>git</span><b>#ffa23a</b></div><div class="tk"><i style="background:#ffd58a"></i><span>claude</span><b>#ffd58a</b></div><div class="tk"><i style="background:#a08560"></i><span>pasta</span><b>#a08560</b></div><div class="tk"><i style="background:#6b3d14"></i><span>dia</span><b>#6b3d14</b></div></div>
+</section>
+<section class="card">
+  <div class="cab"><h2>MONO</h2><span>CINZAS PUROS, UM ACENTO VERDE-ÁCIDO</span></div>
+  <img src="docs/temas/mono.png" alt="CÓRTEX no tema MONO, cérebro inteiro">
+  <div class="grp">INTERFACE</div><div class="tks"><div class="tk"><i style="background:#0a0a0a"></i><span>fundo</span><b>#0a0a0a</b></div><div class="tk"><i style="background:#121212"></i><span>painel</span><b>#121212</b></div><div class="tk"><i style="background:#202020"></i><span>grade</span><b>#202020</b></div><div class="tk"><i style="background:#303030"></i><span>linha</span><b>#303030</b></div><div class="tk"><i style="background:#f0f0f0"></i><span>texto</span><b>#f0f0f0</b></div><div class="tk"><i style="background:#8c8c8c"></i><span>cinza</span><b>#8c8c8c</b></div><div class="tk"><i style="background:#4d4d4d"></i><span>apagado</span><b>#4d4d4d</b></div><div class="tk"><i style="background:#c8f53c"></i><span>acento</span><b>#c8f53c</b></div><div class="tk"><i style="background:#d8d8d8"></i><span>maquina</span><b>#d8d8d8</b></div><div class="tk"><i style="background:#ff4d4d"></i><span>alerta</span><b>#ff4d4d</b></div></div>
+  <div class="grp">3D POR FONTE</div><div class="tks"><div class="tk"><i style="background:#f0f0f0"></i><span>obsidian</span><b>#f0f0f0</b></div><div class="tk"><i style="background:#c8f53c"></i><span>git</span><b>#c8f53c</b></div><div class="tk"><i style="background:#a8a8a8"></i><span>claude</span><b>#a8a8a8</b></div><div class="tk"><i style="background:#6a6a6a"></i><span>pasta</span><b>#6a6a6a</b></div><div class="tk"><i style="background:#4f6620"></i><span>dia</span><b>#4f6620</b></div></div>
+</section>
+<section class="card">
+  <div class="cab"><h2>VIOLETA</h2><span>FRIO E ELEGANTE</span></div>
+  <img src="docs/temas/violeta.png" alt="CÓRTEX no tema VIOLETA, cérebro inteiro">
+  <div class="grp">INTERFACE</div><div class="tks"><div class="tk"><i style="background:#0b0a10"></i><span>fundo</span><b>#0b0a10</b></div><div class="tk"><i style="background:#12111a"></i><span>painel</span><b>#12111a</b></div><div class="tk"><i style="background:#211f2e"></i><span>grade</span><b>#211f2e</b></div><div class="tk"><i style="background:#322f45"></i><span>linha</span><b>#322f45</b></div><div class="tk"><i style="background:#ecebf5"></i><span>texto</span><b>#ecebf5</b></div><div class="tk"><i style="background:#8d8aa3"></i><span>cinza</span><b>#8d8aa3</b></div><div class="tk"><i style="background:#514e66"></i><span>apagado</span><b>#514e66</b></div><div class="tk"><i style="background:#8f7cff"></i><span>acento</span><b>#8f7cff</b></div><div class="tk"><i style="background:#c9c2ff"></i><span>maquina</span><b>#c9c2ff</b></div><div class="tk"><i style="background:#ff5d73"></i><span>alerta</span><b>#ff5d73</b></div></div>
+  <div class="grp">3D POR FONTE</div><div class="tks"><div class="tk"><i style="background:#ecebf5"></i><span>obsidian</span><b>#ecebf5</b></div><div class="tk"><i style="background:#8f7cff"></i><span>git</span><b>#8f7cff</b></div><div class="tk"><i style="background:#c9c2ff"></i><span>claude</span><b>#c9c2ff</b></div><div class="tk"><i style="background:#8d8aa3"></i><span>pasta</span><b>#8d8aa3</b></div><div class="tk"><i style="background:#3c3170"></i><span>dia</span><b>#3c3170</b></div></div>
+</section>
+</div>
+<div class="escolha">
+  <h3>ESCOLHA: GRAFITE</h3>
+  <p>Um acento só, quente e raro, faz o app parecer uma máquina industrial, não um neon.</p>
+  <p>As massas em osso e cinza mantêm milhares de pontos legíveis sem estourar o brilho.</p>
+  <p>O azul-aço frio separa o que é da IA sem gritar.</p>
+</div>
 </body>
 </html>

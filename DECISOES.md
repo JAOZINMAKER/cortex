@@ -5,13 +5,19 @@ Registro do que foi decidido sem te perguntar, e por quê.
 ## D-001 · Servidor local + navegador, não Electron/Tauri
 Um `node server/index.js` serve a página em `127.0.0.1:4747` e o `abrir-cortex.bat` liga tudo e abre o navegador com um clique. O Electron somaria uns 150 MB e o Tauri exigiria Rust instalado. O navegador já tem WebGL acelerado pela GPU e o servidor escuta só em `127.0.0.1`, então nada fica exposto na rede.
 
-## D-002 · Direção visual B, "Terminal de Alarme"
-A folha `direcoes-visuais.html` compara três direções: A Concreto, B Terminal de Alarme e C Criogênico. A escolhida foi a B:
-- **Contraste:** luz sobre preto é o que mais aguenta milhares de pontos e rótulos ao mesmo tempo.
-- **Vermelho:** é alarme e só funciona porque é raro (pulsos, commits, avisos).
-- **Ciano:** fica reservado ao que é da máquina e da IA (sessões do Claude e tags da máquina), o que separa a interpretação da máquina do original.
+## D-002 · Paleta: sistema de temas, padrão "Grafite"
+O primeiro vermelho e o ciano neon ficaram estridentes. A paleta foi trocada por 4 temas, e toda cor sai de um único arquivo, `web/js/tema.js`. O CSS usa variáveis no `:root`, e o canvas, os SVGs, os shaders e os clusters leem os mesmos tokens e se refazem ao trocar de tema, sem recarregar a página. Para trocar: tecla T, Ctrl+K → "tema" ou `?tema=nome`. A escolha fica lembrada em localStorage.
+- **Grafite (padrão):** fundo #0c0c0b, painel #141413, grade #22211e, linha #33312c, texto #ece8df, cinza #8f8a80, apagado #55524b, acento #ff6a2b, máquina #9fb4c7, alerta #ff6a2b.
+- **Âmbar:** fósforo CRT. **Mono:** cinzas puros com acento verde-ácido. **Violeta:** frio. Os tokens de cada um estão em `tema.js` e em `direcoes-visuais.html`.
 
-A A perde legibilidade com muitos pontos. A C fica com cara de ficção científica genérica e intimida menos.
+Regras:
+- **Acento:** é a única cor forte e aparece raramente (alertas, pulsos, números de destaque).
+- **Máquina:** marca tudo que é da IA e as tags da máquina.
+- **Alerta:** só para erro ou fonte AUSENTE.
+- **Massas grandes:** usam o tom de texto e o cinza. O git aparece atenuado e o blending aditivo sai menos saturado.
+- **Calor e idade:** usam o gradiente apagado → texto → acento.
+
+A escolha do Grafite tem três motivos. Um acento só, quente e raro, faz o app parecer uma máquina industrial, não um neon. As massas em osso e cinza mantêm milhares de pontos legíveis. O azul-aço frio separa a IA sem gritar.
 
 ## D-003 · Tipografia: Martian Mono Variable, servida localmente
 É monoespaçada e tem eixo de largura, que vai de 75% (condensada, para os números gigantes) até a largura normal (texto). Vem do npm com versão fixa, sem CDN.

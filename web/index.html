@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="">
 <title>CÓRTEX</title>
 <link rel="stylesheet" href="/css/cortex.css">
 <script type="importmap">
@@ -37,7 +38,7 @@
 
 <aside id="direita">
   <section class="bloco" id="status">
-    <div class="cab"><span>STATUS // PROCESSO</span><span class="pisca vermelho">●</span></div>
+    <div class="cab"><span>STATUS // PROCESSO</span><span class="pisca acento">●</span></div>
     <div id="status-grade" class="status-grade"></div>
     <canvas id="fps-graf" width="256" height="34"></canvas>
   </section>
@@ -54,7 +55,7 @@
     <canvas id="mini" width="256" height="128"></canvas>
   </section>
   <section class="bloco acoes">
-    <button id="btn-maquina">[M] MÁQUINA</button><button id="btn-cmd">[CTRL+K] COMANDO</button><button id="btn-som">[S] SOM: OFF</button>
+    <button id="btn-maquina">[M] MÁQUINA</button><button id="btn-cmd">[CTRL+K] COMANDO</button><button id="btn-som">[S] SOM: OFF</button><button id="btn-tema">[T] TEMA</button>
   </section>
 </aside>
 
@@ -78,7 +79,7 @@
 <!-- Barra de comando -->
 <div id="cmd" class="modal-fundo" hidden>
   <div class="cmd">
-    <div class="cmd-topo"><span class="vermelho">&gt;</span><input id="cmd-in" autocomplete="off" spellcheck="false" placeholder="BUSCAR NEURÔNIO, NOTA, COMMIT, SESSÃO OU AÇÃO"><span class="cmd-dica">↑↓ ENTER ESC</span></div>
+    <div class="cmd-topo"><span class="acento">&gt;</span><input id="cmd-in" autocomplete="off" spellcheck="false" placeholder="BUSCAR NEURÔNIO, NOTA, COMMIT, SESSÃO OU AÇÃO"><span class="cmd-dica">↑↓ ENTER ESC</span></div>
     <div id="cmd-res" class="cmd-res"></div>
     <div id="cmd-rodape" class="cmd-rodape"></div>
   </div>

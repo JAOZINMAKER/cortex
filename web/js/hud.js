@@ -1,4 +1,6 @@
 // HUD permanente: contadores, log, status, minimapa, réguas, avisos.
+import * as tema from './tema.js';
+const U = () => tema.ui();
 import { $, el, esc, fmtN, fmtK, fmtMs, fmtData, FONTE_ROT } from './util.js';
 
 export class Hud {
@@ -46,13 +48,13 @@ export class Hud {
     this._set('evs', s.eventosSeg != null ? s.eventosSeg.toFixed(1).replace('.', ',') : '—'); this._set('rot', x.rot); this._set('pul', x.pul);
     const up = s.uptime || 0; this._set('up', `${Math.floor(up / 3600)}:${String(Math.floor(up / 60) % 60).padStart(2, '0')}:${String(Math.floor(up) % 60).padStart(2, '0')}`); this._set('ver', 'V' + (this.g?.versao ?? '—'));
   }
-  _fpsGraf() { const c = this.fpsG, w = 256, h = 34; c.fillStyle = '#050505'; c.fillRect(0, 0, w, h); c.fillStyle = '#1f1f1f'; c.fillRect(0, h - 1 - 60 / 70 * (h - 4), w, 1); const bw = w / this.fpsHist.length; this.fpsHist.forEach((v, i) => { const bh = Math.min(1, v / 70) * (h - 4); c.fillStyle = v < 30 ? '#ff2a1a' : '#8a8a86'; c.fillRect(i * bw, h - bh, Math.max(1, bw - 0.5), bh); }); c.fillStyle = '#4a4a48'; c.font = '8px Martian Mono Variable, monospace'; c.fillText('FPS 0–70 · LINHA 60', 4, 9); }
+  _fpsGraf() { const c = this.fpsG, w = 256, h = 34; c.fillStyle = U().fundo; c.fillRect(0, 0, w, h); c.fillStyle = U().grade; c.fillRect(0, h - 1 - 60 / 70 * (h - 4), w, 1); const bw = w / this.fpsHist.length; this.fpsHist.forEach((v, i) => { const bh = Math.min(1, v / 70) * (h - 4); c.fillStyle = v < 30 ? U().acento : U().cinza; c.fillRect(i * bw, h - bh, Math.max(1, bw - 0.5), bh); }); c.fillStyle = U().apagado; c.font = '8px Martian Mono Variable, monospace'; c.fillText('FPS 0–70 · LINHA 60', 4, 9); }
   // réguas nas bordas com coordenadas reais da cena no plano do alvo
   _regua() {
     const c = this.c; if (!c.mudouQuadro && this._rOk) return; this._rOk = true;
     const ctx = this.rctx, d = this.dpr, W = innerWidth, H = innerHeight; ctx.setTransform(d, 0, 0, d, 0, 0); ctx.clearRect(0, 0, W, H);
     const cam = c.camera, t = c.controls.target; const dist = c.dist(); const vh = 2 * Math.tan(cam.fov * Math.PI / 360) * dist; const upp = vh / H; // unidades por pixel no plano do alvo
-    ctx.font = '8px Martian Mono Variable, monospace'; ctx.fillStyle = '#4a4a48'; ctx.strokeStyle = '#4a4a48'; ctx.lineWidth = 1;
+    ctx.font = '8px Martian Mono Variable, monospace'; ctx.fillStyle = U().apagado; ctx.strokeStyle = U().apagado; ctx.lineWidth = 1;
     const passo = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000].find(p => p / upp > 9) || 5000;
     const x0 = 312, x1 = W - 292, y0 = 92, y1 = H - 58; const cx = W / 2 + (c.offset || 0) * -1, cy = H / 2;
     ctx.beginPath();
@@ -60,30 +62,30 @@ export class Hud {
     for (let v = Math.ceil(((y0 - cy) * upp) / passo) * passo; (cy + v / upp) < y1; v += passo) { const y = Math.round(cy + v / upp) + 0.5; const big = Math.round(v / passo) % 5 === 0; ctx.moveTo(x0, y); ctx.lineTo(x0 + (big ? 9 : 4), y); ctx.moveTo(x1, y); ctx.lineTo(x1 - (big ? 9 : 4), y); if (big) { ctx.fillText(Math.round(t.y - v), x0 + 12, y + 3); const s = String(Math.round(t.y - v)); ctx.fillText(s, x1 - 12 - ctx.measureText(s).width, y + 3); } }
     ctx.stroke();
     // retícula central
-    ctx.strokeStyle = 'rgba(255,42,26,.55)'; ctx.beginPath(); ctx.moveTo(cx - 14, cy + .5); ctx.lineTo(cx - 5, cy + .5); ctx.moveTo(cx + 5, cy + .5); ctx.lineTo(cx + 14, cy + .5); ctx.moveTo(cx + .5, cy - 14); ctx.lineTo(cx + .5, cy - 5); ctx.moveTo(cx + .5, cy + 5); ctx.lineTo(cx + .5, cy + 14); ctx.stroke();
+    ctx.strokeStyle = tema.rgba(U().acento, .55); ctx.beginPath(); ctx.moveTo(cx - 14, cy + .5); ctx.lineTo(cx - 5, cy + .5); ctx.moveTo(cx + 5, cy + .5); ctx.lineTo(cx + 14, cy + .5); ctx.moveTo(cx + .5, cy - 14); ctx.lineTo(cx + .5, cy - 5); ctx.moveTo(cx + .5, cy + 5); ctx.lineTo(cx + .5, cy + 14); ctx.stroke();
     const p = cam.position; const az = Math.atan2(p.x - t.x, p.z - t.z) * 180 / Math.PI, el2 = Math.asin((p.y - t.y) / dist) * 180 / Math.PI;
     $('#cam-info').textContent = `CAM  X ${p.x.toFixed(1).padStart(8)}  Y ${p.y.toFixed(1).padStart(8)}  Z ${p.z.toFixed(1).padStart(8)}\nALVO X ${t.x.toFixed(1).padStart(8)}  Y ${t.y.toFixed(1).padStart(8)}  Z ${t.z.toFixed(1).padStart(8)}\nAZ ${az.toFixed(2).padStart(7)}°  EL ${el2.toFixed(2).padStart(6)}°  DIST ${dist.toFixed(1)}  FOV ${cam.fov}°  ESCALA 1PX=${upp.toFixed(2)}U  RÉGUA ${passo}U`;
   }
   _minimapa() {
     const c = this.c; const g = this.g; if (!g) return; const ctx = this.mctx, W = 256, H = 128;
     if (!this.miniBase) {
-      const o = document.createElement('canvas'); o.width = W; o.height = H; const x = o.getContext('2d'); x.fillStyle = '#050505'; x.fillRect(0, 0, W, H);
+      const o = document.createElement('canvas'); o.width = W; o.height = H; const x = o.getContext('2d'); x.fillStyle = U().fundo; x.fillRect(0, 0, W, H);
       const b = c.bb; const ex = Math.max(b.x1 - b.x0, b.z1 - b.z0) * 1.25; const ey = (b.y1 - c.espinha.y0) * 1.15;
       this.mm = { s1: 120 / ex, s2: Math.min(120 / ey, 120 / ex), cx: (b.x0 + b.x1) / 2, cz: (b.z0 + b.z1) / 2, cy: (b.y1 + c.espinha.y0) / 2 };
-      const m = this.mm; x.fillStyle = 'rgba(242,242,238,.22)';
-      for (let i = 0; i < g.nos.length; i++) { const p = g.nos[i].pos; x.fillStyle = g.nos[i].fonte === 'git' ? 'rgba(255,42,26,.35)' : g.nos[i].fonte === 'claude' ? 'rgba(94,230,255,.4)' : 'rgba(242,242,238,.2)'; x.fillRect(64 + (p[0] - m.cx) * m.s1, 64 + (p[2] - m.cz) * m.s1, 1, 1); x.fillRect(192 + (p[2] - m.cz) * m.s2, 64 - (p[1] - m.cy) * m.s2, 1, 1); }
-      x.strokeStyle = '#2e2e2e'; x.strokeRect(.5, .5, 127, 127); x.strokeRect(128.5, .5, 127, 127); x.fillStyle = '#4a4a48'; x.font = '7px Martian Mono Variable, monospace'; x.fillText('TOPO XZ', 4, 10); x.fillText('LADO ZY', 132, 10);
+      const m = this.mm; x.fillStyle = tema.rgba(U().texto, .22);
+      for (let i = 0; i < g.nos.length; i++) { const p = g.nos[i].pos; x.fillStyle = g.nos[i].fonte === 'git' ? tema.rgba(U().cinza, .35) : g.nos[i].fonte === 'claude' ? tema.rgba(U().maquina, .4) : tema.rgba(U().texto, .2); x.fillRect(64 + (p[0] - m.cx) * m.s1, 64 + (p[2] - m.cz) * m.s1, 1, 1); x.fillRect(192 + (p[2] - m.cz) * m.s2, 64 - (p[1] - m.cy) * m.s2, 1, 1); }
+      x.strokeStyle = U().linha; x.strokeRect(.5, .5, 127, 127); x.strokeRect(128.5, .5, 127, 127); x.fillStyle = U().apagado; x.font = '7px Martian Mono Variable, monospace'; x.fillText('TOPO XZ', 4, 10); x.fillText('LADO ZY', 132, 10);
       this.miniBase = o;
     }
     const m = this.mm; ctx.drawImage(this.miniBase, 0, 0);
     const p = c.camera.position, t = c.controls.target;
     const px = 64 + (p.x - m.cx) * m.s1, pz = 64 + (p.z - m.cz) * m.s1, tx = 64 + (t.x - m.cx) * m.s1, tz = 64 + (t.z - m.cz) * m.s1;
     const ang = Math.atan2(tz - pz, tx - px), fov = c.camera.fov * Math.PI / 360 * c.camera.aspect; const L = 90;
-    ctx.strokeStyle = '#ff2a1a'; ctx.fillStyle = 'rgba(255,42,26,.08)'; ctx.beginPath(); ctx.moveTo(px, pz); ctx.lineTo(px + Math.cos(ang - fov) * L, pz + Math.sin(ang - fov) * L); ctx.lineTo(px + Math.cos(ang + fov) * L, pz + Math.sin(ang + fov) * L); ctx.closePath(); ctx.fill(); ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 128, 128); ctx.clip(); ctx.stroke(); ctx.restore();
-    ctx.fillStyle = '#f2f2ee'; ctx.fillRect(Math.max(1, Math.min(124, px - 2)), Math.max(1, Math.min(124, pz - 2)), 4, 4); ctx.strokeStyle = '#f2f2ee'; ctx.strokeRect(tx - 3.5, tz - 3.5, 7, 7);
+    ctx.strokeStyle = U().acento; ctx.fillStyle = tema.rgba(U().acento, .08); ctx.beginPath(); ctx.moveTo(px, pz); ctx.lineTo(px + Math.cos(ang - fov) * L, pz + Math.sin(ang - fov) * L); ctx.lineTo(px + Math.cos(ang + fov) * L, pz + Math.sin(ang + fov) * L); ctx.closePath(); ctx.fill(); ctx.save(); ctx.beginPath(); ctx.rect(0, 0, 128, 128); ctx.clip(); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = U().texto; ctx.fillRect(Math.max(1, Math.min(124, px - 2)), Math.max(1, Math.min(124, pz - 2)), 4, 4); ctx.strokeStyle = U().texto; ctx.strokeRect(tx - 3.5, tz - 3.5, 7, 7);
     const sy = 64 - (p.y - m.cy) * m.s2, sz = 192 + (p.z - m.cz) * m.s2, ty = 64 - (t.y - m.cy) * m.s2, tz2 = 192 + (t.z - m.cz) * m.s2;
-    ctx.save(); ctx.beginPath(); ctx.rect(128, 0, 128, 128); ctx.clip(); ctx.strokeStyle = '#ff2a1a'; ctx.beginPath(); ctx.moveTo(sz, sy); ctx.lineTo(tz2, ty); ctx.stroke(); ctx.fillStyle = '#f2f2ee'; ctx.fillRect(sz - 2, sy - 2, 4, 4); ctx.strokeStyle = '#f2f2ee'; ctx.strokeRect(tz2 - 3.5, ty - 3.5, 7, 7); ctx.restore();
-    if (c.foco >= 0) { const f = g.nos[c.foco].pos; ctx.fillStyle = '#ff2a1a'; ctx.fillRect(64 + (f[0] - m.cx) * m.s1 - 2, 64 + (f[2] - m.cz) * m.s1 - 2, 4, 4); }
+    ctx.save(); ctx.beginPath(); ctx.rect(128, 0, 128, 128); ctx.clip(); ctx.strokeStyle = U().acento; ctx.beginPath(); ctx.moveTo(sz, sy); ctx.lineTo(tz2, ty); ctx.stroke(); ctx.fillStyle = U().texto; ctx.fillRect(sz - 2, sy - 2, 4, 4); ctx.strokeStyle = U().texto; ctx.strokeRect(tz2 - 3.5, ty - 3.5, 7, 7); ctx.restore();
+    if (c.foco >= 0) { const f = g.nos[c.foco].pos; ctx.fillStyle = U().acento; ctx.fillRect(64 + (f[0] - m.cx) * m.s1 - 2, 64 + (f[2] - m.cz) * m.s1 - 2, 4, 4); }
     $('#mini-zoom').textContent = 'Z ' + (c.distInicial / c.dist()).toFixed(2).replace('.', ',') + 'X';
   }
   aviso(txt, ok, sub) { const a = $('#aviso'); const h = esc(txt) + '<span class="cursor">_</span>'; if (a._h !== h) { a.innerHTML = h; a._h = h; } a.classList.toggle('ok', !!ok); if (sub != null) $('#aviso2').innerHTML = sub; }

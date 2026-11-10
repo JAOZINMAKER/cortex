@@ -3,15 +3,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { pontoCortex, pontoCerebelo, pontoEspinha, ALFA_MIN, ALFA_MAX } from './anatomia.js';
 
-export const COR_FONTE = { obsidian: [0.86, 0.86, 0.83], git: [1.0, 0.2, 0.11], claude: [0.37, 0.9, 1.0], pasta: [0.55, 0.55, 0.53], sistema: [0.75, 0.1, 0.06] };
-const COR_SIN = { LINK: [0.85, 0.85, 0.82], EMBED: [1, 1, 1], PAI: [0.55, 0.1, 0.06], TOCA: [0.42, 0.09, 0.05], SEQ: [0.37, 0.9, 1], DIA: [0.28, 0.04, 0.02], BRANCH: [1, 0.3, 0.2], TAG: [0.5, 0.5, 0.5] };
-export const PALETA_CLUSTER = ['#ff2a1a', '#5ee6ff', '#f2f2ee', '#ffb000', '#9dff57', '#c77dff', '#ff5fa2', '#3d7bff', '#8a8a86', '#ff7a00', '#00ffa8', '#ffe66b'].map(h => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255]);
+import * as tema from './tema.js';
 const DIA = 864e5;
 
 const VS_NO = `
 attribute vec3 aCor; attribute vec3 aCor2; attribute float aTam; attribute float aCriado; attribute float aRec;
 attribute float aNasc; attribute float aFlash; attribute float aEst;
-uniform float uTempo, uNascDur, uRelogio, uPx, uMix, uGanho, uDist, uExpo; uniform vec3 uOrigem;
+uniform float uTempo, uNascDur, uRelogio, uPx, uMix, uGanho, uDist, uExpo; uniform vec3 uOrigem, uCorFlash, uCorNasc;
 varying vec3 vCor;
 void main(){
   float idade = uTempo - aCriado;
@@ -26,7 +24,7 @@ void main(){
   gl_PointSize = clamp(sz * uPx / -mv.z, 1.0, 20.0);
   vec3 c = mix(aCor, aCor2, uMix);
   float prof = clamp(1.35 - (-mv.z - uDist) / uDist * 1.1, 0.3, 1.4);
-  vCor = c * (0.3 + 0.7 * aRec) * aEst * uGanho * prof * (0.5 + 0.5 * uExpo) + vec3(1.0, 0.32, 0.2) * aFlash + vec3(1.0, 0.5, 0.4) * (1.0 - e) * 0.8;
+  vCor = c * (0.3 + 0.7 * aRec) * aEst * uGanho * prof * (0.5 + 0.5 * uExpo) + uCorFlash * aFlash * 0.85 + uCorNasc * (1.0 - e) * 0.6;
 }`;
 const FS_NO = `
 varying vec3 vCor;
@@ -38,7 +36,7 @@ void main(){
 }`;
 const VS_SIN = `
 attribute vec3 aCor; attribute float aA; attribute float aCriado; attribute float aDest;
-uniform float uTempo, uNascDur, uFocoAtivo, uAlcance, uMul, uGanhoS, uDist, uZoom, uExpo; uniform vec3 uFoco;
+uniform float uTempo, uNascDur, uFocoAtivo, uAlcance, uMul, uGanhoS, uDist, uZoom, uExpo; uniform vec3 uFoco, uCorDest;
 varying vec3 vC; varying float vA;
 void main(){
   float idade = uTempo - aCriado;
@@ -49,12 +47,13 @@ void main(){
   float perto = uFocoAtivo * (1.0 - smoothstep(0.0, uAlcance, distance(position, uFoco)));
   float prof = clamp(1.3 - (-mv.z - uDist) / uDist * 1.2, 0.2, 1.4);
   vA = aA * s * uMul * uGanhoS * uZoom * uExpo * prof * (1.0 - uFocoAtivo * 0.88 + perto * 1.2) + aDest * 0.38;
-  vC = mix(aCor, vec3(1.0, 0.25, 0.15), min(aDest, 1.0) * 0.4);
+  vec3 c = mix(aCor, uCorDest, min(aDest, 1.0) * 0.4);
+  float l = dot(c, vec3(0.299, 0.587, 0.114)); vC = mix(vec3(l), c, 0.7); // menos saturação no aditivo
 }`;
 const FS_SIN = `varying vec3 vC; varying float vA; void main(){ if (vA < 0.002) discard; gl_FragColor = vec4(vC * vA, 1.0); }`;
 const VS_PT = `attribute vec3 aCor; attribute float aTam; uniform float uPx; varying vec3 vC;
 void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_Position = projectionMatrix * mv; gl_PointSize = clamp(aTam * uPx / -mv.z, 1.0, 40.0); vC = aCor; }`;
-const FS_PT = `varying vec3 vC; void main(){ vec2 q = abs(gl_PointCoord - 0.5) * 2.0; float m = max(q.x, q.y); gl_FragColor = vec4(vC * (1.0 - smoothstep(0.3, 1.0, m)), 1.0); }`;
+const FS_PT = `varying vec3 vC; void main(){ vec2 q = abs(gl_PointCoord - 0.5) * 2.0; float m = max(q.x, q.y); float l = dot(vC, vec3(0.299, 0.587, 0.114)); gl_FragColor = vec4(mix(vec3(l), vC, 0.75) * (1.0 - smoothstep(0.3, 1.0, m)), 1.0); }`;
 
 function prng(seed) { let x = seed >>> 0 || 1; return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; return (x >>> 0) / 4294967296; }; }
 
@@ -63,7 +62,7 @@ export class Cerebro {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.setClearColor(0x050505, 1);
+
     this.scene = new THREE.Scene();
     this.scene.fog = null;
     this.camera = new THREE.PerspectiveCamera(36, 1, 5, 30000);
@@ -74,9 +73,10 @@ export class Cerebro {
     this.relogio = 0; this.autoGiro = true; this.tempo = 1e9; this.nascDur = 1; this.foco = -1; this.focoAtivo = 0; this.modo = null; this.mix = 0;
     this.pulsos = []; this.MAXP = 3600; this.voo = null; this.offset = 0; this.offsetAlvo = 0;
     this.camMudou = true; this._ultCam = new THREE.Matrix4();
-    this.u = { uTempo: { value: 1e9 }, uNascDur: { value: 1 }, uRelogio: { value: 0 }, uPx: { value: 600 }, uMix: { value: 0 }, uGanho: { value: 1 }, uDist: { value: 2000 }, uExpo: { value: 1 }, uOrigem: { value: new THREE.Vector3(0, -200, -60) } };
-    this.us = { uTempo: this.u.uTempo, uNascDur: this.u.uNascDur, uFocoAtivo: { value: 0 }, uAlcance: { value: 260 }, uMul: { value: 1 }, uGanhoS: { value: 1 }, uZoom: { value: 1 }, uDist: this.u.uDist, uExpo: this.u.uExpo, uFoco: { value: new THREE.Vector3() } };
-    this._pulsosInit();
+    this.u = { uTempo: { value: 1e9 }, uNascDur: { value: 1 }, uRelogio: { value: 0 }, uPx: { value: 600 }, uMix: { value: 0 }, uGanho: { value: 1 }, uDist: { value: 2000 }, uExpo: { value: 1 }, uCorFlash: { value: new THREE.Vector3(1, 1, 1) }, uCorNasc: { value: new THREE.Vector3(1, 1, 1) }, uOrigem: { value: new THREE.Vector3(0, -200, -60) } };
+    this.us = { uTempo: this.u.uTempo, uNascDur: this.u.uNascDur, uFocoAtivo: { value: 0 }, uAlcance: { value: 260 }, uMul: { value: 1 }, uGanhoS: { value: 1 }, uZoom: { value: 1 }, uDist: this.u.uDist, uExpo: this.u.uExpo, uCorDest: { value: new THREE.Vector3(1, 1, 1) }, uFoco: { value: new THREE.Vector3() } };
+    this._temaUniforms(); this._pulsosInit();
+    tema.aoTrocar(() => this.aplicarTema());
     this.resize();
     addEventListener('resize', () => this.resize());
   }
@@ -111,15 +111,12 @@ export class Cerebro {
     this.flash = new Float32Array(N);
     const agora = Date.now();
     g.nos.forEach((n, i) => {
-      let c = COR_FONTE[n.fonte] || COR_FONTE.pasta;
-      if (n.tipo === 'arquivo') c = [0.42, 0.08, 0.05]; else if (n.tipo === 'commit') c = [0.78, 0.16, 0.09]; else if (n.tipo === 'branch' || n.tipo === 'worktree') c = [1, 0.35, 0.22];
-      cor.set(c, i * 3); cor2.set(c, i * 3);
       tam[i] = (n.tipo === 'dia' ? 6 : n.tipo === 'arquivo' || n.tipo === 'commit' ? 3 : 4.2) + Math.min(16, Math.sqrt(n.grau || 0) * (n.tipo === 'arquivo' || n.tipo === 'commit' ? 0.6 : 1.5));
       cri[i] = (n.criado - this.t0) / DIA;
       const idade = (agora - (n.modificado || n.criado)) / DIA; rec[i] = Math.max(0.12, Math.exp(-idade / 45));
       if (antIds && !antIds.has(n.id)) nasc[i] = this.relogio + 0.001;
     });
-    this.base = { cor, tam, rec };
+    this.base = { cor, tam, rec }; this._coresNos(cor); cor2.set(cor);
     this._limpar(this.nosObj); this._limpar(this.sinObj);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
@@ -135,12 +132,11 @@ export class Cerebro {
     const recA = new Float32Array(E);
     g.sinapses.forEach((s, k) => {
       for (let j = 0; j < 3; j++) { sp[k * 6 + j] = pos[s.a * 3 + j]; sp[k * 6 + 3 + j] = pos[s.b * 3 + j]; }
-      const c = COR_SIN[s.tipo] || COR_SIN.TAG; sc.set(c, k * 6); sc.set(c, k * 6 + 3);
       const a = s.tipo === 'DIA' ? 0.025 : s.tipo === 'TOCA' ? 0.04 : 0.06 + 0.2 * (s.peso ?? 0.5); sa[k * 2] = sa[k * 2 + 1] = a;
       scri[k * 2] = scri[k * 2 + 1] = Math.max(cri[s.a], cri[s.b]);
       recA[k] = Math.max(g.nos[s.a].modificado || 0, g.nos[s.b].modificado || 0);
     });
-    this.sinBase = { sa };
+    this.sinBase = { sa }; this._coresSin(sc);
     this.u.uGanho.value = Math.min(1.1, Math.max(0.7, Math.sqrt(5000 / Math.max(1, N))));
     this.us.uGanhoS.value = Math.min(1.2, Math.max(0.06, Math.sqrt(400 / Math.max(1, E)) * 0.14));
     const sg = new THREE.BufferGeometry();
@@ -157,6 +153,18 @@ export class Cerebro {
     this.aplicarModo(this.modo, this.caminho);
     this.camMudou = true; this.projVersao = (this.projVersao || 0) + 1;
   }
+  // ---------------------------------------------------------------- tema
+  _temaUniforms() { const D = tema.d3(); this.renderer.setClearColor(new THREE.Color().setRGB(...D.fundo, THREE.SRGBColorSpace), 1); this.u.uCorFlash.value.set(...D.flash); this.u.uCorNasc.value.set(...D.nascimento); this.us.uCorDest.value.set(...D.destaque); }
+  _corNo(n) { const D = tema.d3(); return D.tipo[n.tipo] || D.fonte[n.fonte] || D.fonte.pasta; }
+  _coresNos(arr) { this.g.nos.forEach((n, i) => arr.set(this._corNo(n), i * 3)); }
+  _coresSin(arr) { const S = tema.d3().sinapse; this.g.sinapses.forEach((s, k) => { const c = S[s.tipo] || S.TAG; arr.set(c, k * 6); arr.set(c, k * 6 + 3); }); }
+  // troca de tema sem recarregar: refaz os buffers de cor, o tecido e a grade
+  aplicarTema() {
+    this._temaUniforms(); if (!this.g) return;
+    this._coresNos(this.base.cor); this.nosObj.geometry.attributes.aCor.needsUpdate = true;
+    this._coresSin(this.sinObj.geometry.attributes.aCor.array); this.sinObj.geometry.attributes.aCor.needsUpdate = true;
+    this._tecido(); this._grade(); this.aplicarModo(this.modo, this.caminho); this.camMudou = true;
+  }
   _limpar(o) { if (!o) return; this.scene.remove(o); o.geometry.dispose(); o.material.dispose(); }
   _caixa() {
     const g = this.g; const xs = [], ys = [], zs = []; const dias = [];
@@ -172,7 +180,7 @@ export class Cerebro {
   _tecido() {
     this._limpar(this.tecidoObj);
     const R = prng(1337); const P = [], C = [];
-    const push = (p, k, r = 1, g = 1, b = 0.97) => { P.push(p[0], p[1], p[2]); C.push(k * r, k * g, k * b); };
+    const TC = tema.d3().tecido, FC = tema.d3().fissura; const push = (p, k, c = TC) => { P.push(p[0], p[1], p[2]); C.push(k * c[0], k * c[1], k * c[2]); };
     // córtex: superfície com giros (cristas claras, sulcos escuros) e parede medial na fissura
     for (let i = 0; i < 52000; i++) {
       const s = R() < 0.5 ? -1 : 1, u = R(), a = ALFA_MIN - 0.12 + (ALFA_MAX + 0.15 - ALFA_MIN + 0.12) * R();
@@ -181,7 +189,7 @@ export class Cerebro {
       push(p, 0.05 + 0.28 * Math.pow(Math.max(0, crista), 1.3) + (a < 0 ? 0.03 : 0));
     }
     // contorno da fissura longitudinal (borda medial superior), marcado
-    for (let i = 0; i < 2400; i++) { const s = R() < 0.5 ? -1 : 1; const { p } = pontoCortex(s, R(), ALFA_MIN - 0.1, 0); push(p, 0.22, 1, 0.35, 0.25); }
+    for (let i = 0; i < 2400; i++) { const s = R() < 0.5 ? -1 : 1; const { p } = pontoCortex(s, R(), ALFA_MIN - 0.1, 0); push(p, 0.32, FC); }
     // cerebelo com folhas
     for (let i = 0; i < 9000; i++) { const v = R(), phi = -0.4 * Math.PI + R() * 1.65 * Math.PI; const { p, f } = pontoCerebelo(v, phi, 0); push(p, 0.03 + 0.16 * Math.max(0, (f - 1) / 0.08)); }
     // tronco e espinha com vértebras
@@ -196,7 +204,7 @@ export class Cerebro {
     if (this.gradeObj) { this.scene.remove(this.gradeObj); }
     const grp = new THREE.Group(); const L = [], LC = [];
     const b = this.bb, ext = 1500, yb = this.espinha.y0 - 80, passo = 100;
-    const ln = (a, b2, k) => { L.push(...a, ...b2); LC.push(k, k, k, k, k, k); };
+    const GC = tema.d3().grade.map(v => v * 1.6); const ln = (a, b2, k) => { L.push(...a, ...b2); LC.push(k * GC[0], k * GC[1], k * GC[2], k * GC[0], k * GC[1], k * GC[2]); };
     for (let v = -ext; v <= ext; v += passo) { const k = v === 0 ? 0.08 : (v % 500 === 0 ? 0.035 : 0.014); ln([v, 0, -ext], [v, 0, ext], k); ln([-ext, 0, v], [ext, 0, v], k); }
     for (let v = -ext; v <= ext; v += passo) { const k = v % 500 === 0 ? 0.03 : 0.012; ln([0, yb, v], [0, 900, v], k); }
     for (let y = Math.ceil(yb / passo) * passo; y <= 900; y += passo) { const k = y === 0 ? 0.07 : (y % 500 === 0 ? 0.03 : 0.012); ln([0, y, -ext], [0, y, ext], k); }
@@ -206,7 +214,8 @@ export class Cerebro {
     grp.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })));
     // eixos
     const ax = new THREE.BufferGeometry(); ax.setAttribute('position', new THREE.Float32BufferAttribute([-ext, 0, 0, ext, 0, 0, 0, yb, 0, 0, 900, 0, 0, 0, -ext, 0, 0, ext], 3));
-    ax.setAttribute('color', new THREE.Float32BufferAttribute([.5, .08, .05, .5, .08, .05, .25, .25, .25, .25, .25, .25, .12, .4, .45, .12, .4, .45], 3));
+    const D = tema.d3(); const cx = D.eixoX.map(v => v * 0.7), cy = D.eixoY.map(v => v * 0.3), cz = D.eixoZ.map(v => v * 0.6);
+    ax.setAttribute('color', new THREE.Float32BufferAttribute([...cx, ...cx, ...cy, ...cy, ...cz, ...cz], 3));
     grp.add(new THREE.LineSegments(ax, new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true })));
     grp.renderOrder = 0; this.gradeObj = grp; this.scene.add(grp);
   }
@@ -253,11 +262,12 @@ export class Cerebro {
     const N = g.nos.length, at = this.nosObj.geometry.attributes, c2 = at.aCor2.array, est = at.aEst.array; const agora = Date.now();
     const sd = this.sinObj.geometry.attributes.aDest.array; sd.fill(0);
     est.fill(1);
-    if (modo === 'calor') for (let i = 0; i < N; i++) { const n = g.nos[i]; const h = Math.exp(-(agora - n.modificado) / (DIA * 21)) * 0.8 + Math.min(1, (n.grau || 0) / 40) * 0.2; c2[i * 3] = Math.min(1, h * 2.2 + 0.08); c2[i * 3 + 1] = Math.max(0, h * 1.6 - 0.7) + 0.04 * h; c2[i * 3 + 2] = Math.max(0, h * 1.6 - 0.75); est[i] = 0.35 + 0.9 * h; }
-    else if (modo === 'idade') for (let i = 0; i < N; i++) { const n = g.nos[i]; const a = Math.min(1, (agora - n.criado) / (DIA * 365)); c2[i * 3] = 0.37 * (1 - a) + 0.28 * a; c2[i * 3 + 1] = 0.9 * (1 - a) + 0.27 * a; c2[i * 3 + 2] = 1 * (1 - a) + 0.26 * a; est[i] = 1.3 - a * 0.85; }
-    else if (modo === 'cluster') for (let i = 0; i < N; i++) { const c = PALETA_CLUSTER[(g.nos[i].cluster >>> 0) % PALETA_CLUSTER.length]; c2.set(c, i * 3); }
-    else if (modo === 'orfaos') for (let i = 0; i < N; i++) { const o = g.nos[i].orfao || !g.nos[i].grau; c2[i * 3] = o ? 1 : 0.4; c2[i * 3 + 1] = o ? 0.16 : 0.4; c2[i * 3 + 2] = o ? 0.1 : 0.4; est[i] = o ? 2.2 : 0.12; }
-    else if (modo === 'caminho') { for (let i = 0; i < N; i++) { c2[i * 3] = c2[i * 3 + 1] = c2[i * 3 + 2] = 0.5; est[i] = 0.14; } if (caminho) { for (const i of caminho.nos) { c2[i * 3] = 1; c2[i * 3 + 1] = 1; c2[i * 3 + 2] = 1; est[i] = 2.5; } for (const k of caminho.arestas) sd[k * 2] = sd[k * 2 + 1] = 2.2; } }
+    const D = tema.d3(), cz = tema.rgb(tema.ui().cinza), fd = D.fundo;
+    if (modo === 'calor') for (let i = 0; i < N; i++) { const n = g.nos[i]; const h = Math.min(1, Math.exp(-(agora - n.modificado) / (DIA * 21)) * 0.8 + Math.min(1, (n.grau || 0) / 40) * 0.2); c2.set(tema.gradiente(h), i * 3); est[i] = 0.45 + 0.75 * h; }
+    else if (modo === 'idade') for (let i = 0; i < N; i++) { const n = g.nos[i]; const a = Math.min(1, (agora - n.criado) / (DIA * 365)); c2.set(tema.gradiente(1 - a), i * 3); est[i] = 1.2 - a * 0.6; }
+    else if (modo === 'cluster') for (let i = 0; i < N; i++) { const P = D.clusters; c2.set(P[(g.nos[i].cluster >>> 0) % P.length], i * 3); }
+    else if (modo === 'orfaos') for (let i = 0; i < N; i++) { const o = g.nos[i].orfao || !g.nos[i].grau; c2.set(o ? D.orfao : cz, i * 3); est[i] = o ? 1.8 : 0.14; }
+    else if (modo === 'caminho') { for (let i = 0; i < N; i++) { c2.set(cz, i * 3); est[i] = 0.14; } if (caminho) { for (const i of caminho.nos) { c2.set(D.caminho, i * 3); est[i] = 2.2; } for (const k of caminho.arestas) sd[k * 2] = sd[k * 2 + 1] = 2.2; } }
     else c2.set(this.base.cor);
     if (this.foco >= 0) {
       const f = this.foco; const set = new Set([f]); for (const [v, k] of this.vizinhos(f)) { set.add(v); sd[k * 2] = sd[k * 2 + 1] = Math.max(sd[k * 2], 1); }
@@ -280,11 +290,11 @@ export class Cerebro {
   pulsarAresta(k, de, forca = 1, cor) {
     if (this.pulsos.length >= this.MAXP) return; const s = this.g.sinapses[k]; if (!s) return;
     const a = de === s.b ? s.b : s.a, b = a === s.a ? s.b : s.a;
-    this.pulsos.push({ a, b, t: 0, dur: 0.5 + Math.random() * 0.9, f: forca, c: cor || COR_SIN[s.tipo] || COR_SIN.LINK });
+    const S = tema.d3().sinapse; this.pulsos.push({ a, b, t: 0, dur: 0.5 + Math.random() * 0.9, f: forca, c: cor || S[s.tipo] || S.LINK });
   }
   pulsar(i, nivel = 'PULSO') {
     if (i == null || i < 0 || !this.g) return; this.flash[i] = 1; this.nosObj.geometry.attributes.aFlash.needsUpdate = true;
-    const cor = nivel === 'ALERTA' ? [1, 0.18, 0.1] : nivel === 'HIST' ? [0.6, 0.6, 0.6] : [1, 1, 1];
+    const cor = tema.d3().pulso[nivel] || tema.d3().pulso.PULSO;
     const v = this.vizinhos(i); for (let j = 0; j < Math.min(28, v.length); j++) this.pulsarAresta(v[j][1], i, nivel === 'HIST' ? 0.5 : 1.3, cor);
     // propagação de segunda ordem
     for (let j = 0; j < Math.min(6, v.length); j++) { const w = this.vizinhos(v[j][0]); for (let q = 0; q < Math.min(4, w.length); q++) { const P = this.pulsos.length; this.pulsarAresta(w[q][1], v[j][0], 0.6, cor); if (this.pulsos[P]) this.pulsos[P].t = -0.6; } }

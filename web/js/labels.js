@@ -160,20 +160,20 @@ export class Rotulos {
     const maxPx = Math.max(60, Math.min(260, meia - 118 - 54));
     const corta = (v, k) => { v = String(v); if (ctx.measureText(v).width <= maxPx) return v; const cam = k === 'CAMINHO'; let t = v; while (t.length > 1 && ctx.measureText('…' + t).width > maxPx) t = cam ? t.slice(1) : t.slice(0, -1); return cam ? '…' + t : t + '…'; };
     const R = 118;
-    add('circle', { r: R + 14, fill: 'rgba(5,5,5,.62)', stroke: 'none' });
-    add('circle', { r: R, fill: 'none', stroke: '#f2f2ee', 'stroke-width': 1 });
-    add('circle', { r: R - 16, fill: 'none', stroke: '#2e2e2e', 'stroke-width': 1 });
-    add('circle', { r: 7, fill: 'none', stroke: '#ff2a1a', 'stroke-width': 2 });
-    add('line', { x1: -24, y1: 0, x2: -10, y2: 0, stroke: '#ff2a1a' }); add('line', { x1: 10, y1: 0, x2: 24, y2: 0, stroke: '#ff2a1a' }); add('line', { x1: 0, y1: -24, x2: 0, y2: -10, stroke: '#ff2a1a' }); add('line', { x1: 0, y1: 10, x2: 0, y2: 24, stroke: '#ff2a1a' });
+    add('circle', { r: R + 14, class: 'f-fx' });
+    add('circle', { r: R, fill: 'none', class: 's-t', 'stroke-width': 1 });
+    add('circle', { r: R - 16, fill: 'none', class: 's-l', 'stroke-width': 1 });
+    add('circle', { r: 7, fill: 'none', class: 's-v', 'stroke-width': 2 });
+    add('line', { x1: -24, y1: 0, x2: -10, y2: 0, class: 's-v' }); add('line', { x1: 10, y1: 0, x2: 24, y2: 0, class: 's-v' }); add('line', { x1: 0, y1: -24, x2: 0, y2: -10, class: 's-v' }); add('line', { x1: 0, y1: 10, x2: 0, y2: 24, class: 's-v' });
     const giro = add('g', { class: 'giro' });
-    for (let k = 0; k < 120; k++) { const a = k / 120 * Math.PI * 2, l = k % 10 === 0 ? 10 : k % 5 === 0 ? 6 : 3; add('line', { x1: Math.cos(a) * R, y1: Math.sin(a) * R, x2: Math.cos(a) * (R + l), y2: Math.sin(a) * (R + l), stroke: k % 10 === 0 ? '#f2f2ee' : '#4a4a48', 'stroke-width': 1 }, giro); }
+    for (let k = 0; k < 120; k++) { const a = k / 120 * Math.PI * 2, l = k % 10 === 0 ? 10 : k % 5 === 0 ? 6 : 3; add('line', { x1: Math.cos(a) * R, y1: Math.sin(a) * R, x2: Math.cos(a) * (R + l), y2: Math.sin(a) * (R + l), class: k % 10 === 0 ? 's-t' : 's-a', 'stroke-width': 1 }, giro); }
     // texto circular com hash/id
     const pid = 'arco' + n.idCurto; add('path', { id: pid, d: `M ${-(R - 8)} 0 A ${R - 8} ${R - 8} 0 1 1 ${R - 8} 0 A ${R - 8} ${R - 8} 0 1 1 ${-(R - 8)} 0`, fill: 'none' }, giro);
-    const tx = add('text', { fill: '#8a8a86', 'font-size': 7.5, 'letter-spacing': 1.5, 'font-family': 'Martian Mono Variable, monospace' }, giro);
+    const tx = add('text', { class: 'f-c', 'font-size': 7.5, 'letter-spacing': 1.5, 'font-family': 'Martian Mono Variable, monospace' }, giro);
     const tp = add('textPath', { href: '#' + pid }, tx); tp.textContent = `ID ${n.id} · HASH ${n.hash} · ${TIPO_ROT[n.tipo] || n.tipo} · ${FONTE_ROT[n.fonte]} · G${n.grau} · CL${n.cluster} · `.repeat(2).toUpperCase().slice(0, 150);
     // arcos de grau / palavras
-    const arco = (r, f, cor, w) => { const a = Math.min(0.999, f) * Math.PI * 2; add('path', { d: `M 0 ${-r} A ${r} ${r} 0 ${a > Math.PI ? 1 : 0} 1 ${Math.sin(a) * r} ${-Math.cos(a) * r}`, fill: 'none', stroke: cor, 'stroke-width': w }); };
-    arco(R - 22, Math.min(1, n.grau / 60), '#ff2a1a', 3); arco(R - 28, Math.min(1, Math.log10(1 + n.palavras) / 4.5), '#5ee6ff', 2);
+    const arco = (r, f, cor, w) => { const a = Math.min(0.999, f) * Math.PI * 2; add('path', { d: `M 0 ${-r} A ${r} ${r} 0 ${a > Math.PI ? 1 : 0} 1 ${Math.sin(a) * r} ${-Math.cos(a) * r}`, fill: 'none', class: cor, 'stroke-width': w }); };
+    arco(R - 22, Math.min(1, n.grau / 60), 's-v', 3); arco(R - 28, Math.min(1, Math.log10(1 + n.palavras) / 4.5), 's-m', 2);
     // campos radiais
     const tags = (d?.maquina?.tags || n.tags || []).slice(0, 5).join(' ').toUpperCase();
     const campos = [
@@ -183,22 +183,22 @@ export class Rotulos {
     const angs = [-56, -30, -4, 22, 48, 160, 196, 222];
     campos.forEach(([k, v], j) => {
       const a = angs[j] * Math.PI / 180; const dir = Math.cos(a) >= 0 ? 1 : -1; const x0 = Math.cos(a) * (R + 12), y0 = Math.sin(a) * (R + 12), x1 = dir * (R + 46), y1 = y0;
-      add('line', { x1: Math.cos(a) * R, y1: Math.sin(a) * R, x2: x0, y2: y0, stroke: '#f2f2ee', 'stroke-width': 1 });
-      add('line', { x1: x0, y1: y0, x2: x1, y2: y1, stroke: '#4a4a48', 'stroke-width': 1 });
-      const wl = Math.ceil(Math.max(k.length * 0.85 * cw, ctx.measureText(corta(v, k)).width) + 10); add('rect', { x: dir > 0 ? x1 + 2 : x1 - 2 - wl, y: y1 - 10, width: wl, height: 23, fill: 'rgba(5,5,5,.78)' });
-      const t1 = add('text', { x: x1 + dir * 4, y: y1 - 2, 'text-anchor': dir > 0 ? 'start' : 'end', fill: '#8a8a86', 'font-size': 7.5, 'letter-spacing': 1.2, 'font-family': 'Martian Mono Variable, monospace' }); t1.textContent = k;
-      const t2 = add('text', { x: x1 + dir * 4, y: y1 + 9, 'text-anchor': dir > 0 ? 'start' : 'end', fill: '#f2f2ee', 'font-size': 9.5, 'font-family': 'Martian Mono Variable, monospace' }); t2.textContent = corta(v, k);
+      add('line', { x1: Math.cos(a) * R, y1: Math.sin(a) * R, x2: x0, y2: y0, class: 's-t', 'stroke-width': 1 });
+      add('line', { x1: x0, y1: y0, x2: x1, y2: y1, class: 's-a', 'stroke-width': 1 });
+      const wl = Math.ceil(Math.max(k.length * 0.85 * cw, ctx.measureText(corta(v, k)).width) + 10); add('rect', { x: dir > 0 ? x1 + 2 : x1 - 2 - wl, y: y1 - 10, width: wl, height: 23, class: 'f-f' });
+      const t1 = add('text', { x: x1 + dir * 4, y: y1 - 2, 'text-anchor': dir > 0 ? 'start' : 'end', class: 'f-c', 'font-size': 7.5, 'letter-spacing': 1.2, 'font-family': 'Martian Mono Variable, monospace' }); t1.textContent = k;
+      const t2 = add('text', { x: x1 + dir * 4, y: y1 + 9, 'text-anchor': dir > 0 ? 'start' : 'end', class: 'f-t', 'font-size': 9.5, 'font-family': 'Martian Mono Variable, monospace' }); t2.textContent = corta(v, k);
     });
     // título e trecho
-    const t = add('text', { x: 0, y: -R - 30, 'text-anchor': 'middle', fill: '#f2f2ee', 'font-size': 15, 'font-weight': 800, 'font-stretch': '75%', 'font-family': 'Martian Mono Variable, monospace' }); t.textContent = (n.idCurto + ' ' + n.titulo).slice(0, 56).toUpperCase();
-    const bg = add('rect', { x: -6, y: -R - 46, width: 12, height: 4, fill: '#ff2a1a' });
+    const t = add('text', { x: 0, y: -R - 30, 'text-anchor': 'middle', class: 'f-t', 'font-size': 15, 'font-weight': 800, 'font-stretch': '75%', 'font-family': 'Martian Mono Variable, monospace' }); t.textContent = (n.idCurto + ' ' + n.titulo).slice(0, 56).toUpperCase();
+    const bg = add('rect', { x: -6, y: -R - 46, width: 12, height: 4, class: 'f-v' });
     const trecho = d?.conteudo?.corpo ? d.conteudo.corpo.replace(/^---[\s\S]*?---/, '').replace(/[#>*`\[\]_|-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240) : '';
-    if (trecho) add('rect', { x: -200, y: R + 12, width: 400, height: 62, fill: 'rgba(5,5,5,.82)' });
-    if (trecho) { const linhas = trecho.match(/.{1,60}(\s|$)/g) || []; linhas.slice(0, 4).forEach((l, k) => { const e = add('text', { x: 0, y: R + 34 + k * 12, 'text-anchor': 'middle', fill: k ? '#8a8a86' : '#cfcfca', 'font-size': 9, 'font-family': 'Martian Mono Variable, monospace' }); e.textContent = (k === 0 ? '“' : '') + l.trim() + (k === Math.min(3, linhas.length - 1) ? '”' : ''); }); add('text', { x: 0, y: R + 22, 'text-anchor': 'middle', fill: '#ff2a1a', 'font-size': 7.5, 'letter-spacing': 1.5, 'font-family': 'Martian Mono Variable, monospace' }).textContent = 'TRECHO // ORIGINAL INTACTO'; }
+    if (trecho) add('rect', { x: -200, y: R + 12, width: 400, height: 62, class: 'f-f' });
+    if (trecho) { const linhas = trecho.match(/.{1,60}(\s|$)/g) || []; linhas.slice(0, 4).forEach((l, k) => { const e = add('text', { x: 0, y: R + 34 + k * 12, 'text-anchor': 'middle', class: k ? 'f-c' : 'f-t', 'font-size': 9, 'font-family': 'Martian Mono Variable, monospace' }); e.textContent = (k === 0 ? '“' : '') + l.trim() + (k === Math.min(3, linhas.length - 1) ? '”' : ''); }); add('text', { x: 0, y: R + 22, 'text-anchor': 'middle', class: 'f-v', 'font-size': 7.5, 'letter-spacing': 1.5, 'font-family': 'Martian Mono Variable, monospace' }).textContent = 'TRECHO // ORIGINAL INTACTO'; }
     // vizinhos por força
     const c = this.c; const vz = (d?.vizinhos || c.vizinhos(c.foco).map(([v, k]) => ({ id: c.g.nos[v].id, titulo: c.g.nos[v].titulo, forca: c.g.sinapses[k].peso || 0 })).sort((a, b) => b.forca - a.forca)).slice(0, 8);
     this.vizAnel = vz.map(v => ({ i: c.ids.get(v.id), f: v.forca, t: v.titulo })).filter(v => v.i != null);
-    this.linhasViz = this.vizAnel.map((v, k) => ({ l: add('line', { stroke: k < 3 ? '#ff2a1a' : '#f2f2ee', 'stroke-width': k < 3 ? 1.5 : 1, 'stroke-dasharray': k < 3 ? '' : '3 3' }), t: Object.assign(add('text', { fill: '#f2f2ee', 'font-size': 8.5, 'font-family': 'Martian Mono Variable, monospace' }), { textContent: `#${k + 1} F${v.f.toFixed(2)} ${v.t.slice(0, 26)}` }) }));
+    this.linhasViz = this.vizAnel.map((v, k) => ({ l: add('line', { class: k < 3 ? 's-v' : 's-t', 'stroke-width': k < 3 ? 1.5 : 1, 'stroke-dasharray': k < 3 ? '' : '3 3' }), t: Object.assign(add('text', { class: 'f-t', 'font-size': 8.5, 'font-family': 'Martian Mono Variable, monospace' }), { textContent: `#${k + 1} F${v.f.toFixed(2)} ${v.t.slice(0, 26)}` }) }));
   }
   esconderTudo() { for (const [, o] of this.rg) o.e.style.display = 'none'; }
 }

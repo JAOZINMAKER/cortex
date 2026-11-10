@@ -1,4 +1,6 @@
 // CÓRTEX — orquestra cena, HUD, painéis, WebSocket e replay.
+import * as tema from './tema.js';
+const U = () => tema.ui();
 import { Cerebro } from './brain.js';
 import { Rotulos } from './labels.js';
 import { Hud } from './hud.js';
@@ -39,11 +41,11 @@ class Replay {
     const g = this.app.g, c = this.app.cerebro; if (!g) return; const r = this.trilho.getBoundingClientRect(); const d = Math.min(devicePixelRatio, 2); this.cv.width = r.width * d; this.cv.height = r.height * d; const x = this.cv.getContext('2d'); x.scale(d, d);
     const W = r.width, H = r.height; const B = Math.max(20, Math.floor(W / 3)); const h = new Float32Array(B), hs = new Float32Array(B);
     for (const n of g.nos) { const k = Math.min(B - 1, Math.floor((n.criado - c.t0) / DIA / this.total * B)); if (k >= 0) { h[k]++; if (n.fonte === 'git' || n.fonte === 'claude') hs[k]++; } }
-    const m = Math.max(...h) || 1; x.fillStyle = '#050505'; x.fillRect(0, 0, W, H);
-    for (let k = 0; k < B; k++) { const v = Math.sqrt(h[k] / m) * (H - 18); x.fillStyle = '#4a4a48'; x.fillRect(k * W / B, H - v, W / B - 1, v); const v2 = Math.sqrt(hs[k] / m) * (H - 18); x.fillStyle = 'rgba(255,42,26,.7)'; x.fillRect(k * W / B, H - v2, W / B - 1, v2); }
-    x.fillStyle = '#8a8a86'; x.font = '8px Martian Mono Variable, monospace'; const anos = new Set();
+    const m = Math.max(...h) || 1; x.fillStyle = U().fundo; x.fillRect(0, 0, W, H);
+    for (let k = 0; k < B; k++) { const v = Math.sqrt(h[k] / m) * (H - 18); x.fillStyle = U().apagado; x.fillRect(k * W / B, H - v, W / B - 1, v); const v2 = Math.sqrt(hs[k] / m) * (H - 18); x.fillStyle = tema.rgba(U().acento, .5); x.fillRect(k * W / B, H - v2, W / B - 1, v2); }
+    x.fillStyle = U().cinza; x.font = '8px Martian Mono Variable, monospace'; const anos = new Set();
     for (let k = 0; k <= 8; k++) { const t = c.t0 + this.total * DIA * k / 8; const s = fmtData(t); x.fillRect(k * W / 8, 0, 1, 4); x.fillText(s, Math.min(W - 58, k * W / 8 + 3), 12); }
-    x.fillStyle = '#2e2e2e'; x.fillRect(0, H - 1, W, 1);
+    x.fillStyle = U().linha; x.fillRect(0, H - 1, W, 1);
   }
 }
 
@@ -55,6 +57,8 @@ class App {
     this.sobre = [{ id: 'calor', nome: 'CALOR DE ATIVIDADE', tecla: 1 }, { id: 'idade', nome: 'IDADE DAS NOTAS', tecla: 2 }, { id: 'cluster', nome: 'CLUSTERS POR TEMA', tecla: 3 }, { id: 'caminho', nome: 'CAMINHO MAIS CURTO', tecla: 4 }, { id: 'orfaos', nome: 'ÓRFÃOS SEM LIGAÇÃO', tecla: 5 }];
     this._sobreUI(); this._entrada();
     this.hud.onClicarLog = id => this.focarId(id);
+    tema.aoTrocar((T, n) => { this.hud.miniBase = null; this.hud._rOk = false; this.replay.desenhar(); if (this.maquina.aberto) this.maquina._barras(); $('#btn-tema').textContent = '[T] TEMA: ' + T.nome; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'TEMA ' + T.nome + ' APLICADO' }); });
+    $('#btn-tema').textContent = '[T] TEMA: ' + tema.atual().nome; $('#btn-tema').onclick = () => tema.ciclar();
     $('#btn-conectar').onclick = () => this.conectar.abrir(); $('#btn-maquina').onclick = () => this.maquina.alternar(); $('#btn-cmd').onclick = () => this.comando.abrir(); $('#btn-som').onclick = () => this.alternarSom();
     if (BENCH) $('#bench-selo').hidden = false;
     this.carregar().then(async () => { if (BENCH) return; try { const r = await fetch('/api/maquina'); if (r.ok) { const d = await r.json(); this.maquina.atualizar(d); for (const ev of (d.telemetria || []).slice(-160)) { this.hud.log({ ...ev, nivel: ev.nivel === 'INFO' || ev.nivel === 'ALERTA' || ev.nivel === 'PULSO' ? ev.nivel : 'HIST' }, false); this.maquina.evento(ev); } } } catch {} this.conectarWS(); });
@@ -143,7 +147,7 @@ class App {
       if (digitando) return;
       const k = ev.key.toLowerCase();
       if (k === 'm') this.maquina.alternar(); else if (k === 's') this.alternarSom(); else if (k === '0') this.cerebro.enquadrar(); else if (k === ' ') { ev.preventDefault(); this.replay.tocando ? this.replay.pausar() : this.replay.iniciar(); }
-      else if (k >= '1' && k <= '5') this.alternarModo(this.sobre[+k - 1].id); else if (k === 'c') this.conectar.abrir();
+      else if (k >= '1' && k <= '5') this.alternarModo(this.sobre[+k - 1].id); else if (k === 'c') this.conectar.abrir(); else if (k === 't') tema.ciclar();
     });
   }
   _dica() {
@@ -194,5 +198,6 @@ window.__cortex = {
   comando: t => app.comando.abrir(t), fecharComando: () => app.comando.fechar(),
   conectar: () => app.conectar.abrir(), fecharConectar: () => app.conectar.fechar(),
   enquadrar: () => { app.desfocar(); app.cerebro.enquadrar(false); }, modo: m => app.alternarModo(m),
-  pararGiro: () => { app.cerebro.autoGiro = false; }
+  pararGiro: () => { app.cerebro.autoGiro = false; },
+  tema: n => tema.aplicar(n)
 };
