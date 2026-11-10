@@ -23,7 +23,7 @@ function alvos(fonte) {
       opts: { depth: 8 },
     };
   }
-  if (fonte.tipo === 'claude') return { paths: [p], opts: { depth: 1 } };
+  if (fonte.tipo === 'claude') return { paths: [p], opts: { depth: 3 } }; // inclui <sessão>/subagents/*.jsonl
   if (fonte.tipo === 'pasta') return { paths: [p], opts: { depth: 6 } };
   return { paths: [p], opts: { depth: 30 } };
 }

@@ -152,7 +152,7 @@ function montar(parciais, statusFontes) {
   }
   // SEQ entre sessões consecutivas do mesmo projeto
   const sessPorProj = new Map();
-  nosOrd.forEach((n, i) => { if (n.tipo === 'sessao') { if (!sessPorProj.has(n.regiao)) sessPorProj.set(n.regiao, []); sessPorProj.get(n.regiao).push(i); } });
+  nosOrd.forEach((n, i) => { if (n.tipo === 'sessao' && !(n.extra && n.extra.agente)) { if (!sessPorProj.has(n.regiao)) sessPorProj.set(n.regiao, []); sessPorProj.get(n.regiao).push(i); } });
   for (const lista of sessPorProj.values()) {
     lista.sort((a, b) => nosOrd[a].criado - nosOrd[b].criado);
     for (let i = 1; i < lista.length; i++) add(lista[i - 1], lista[i], 'SEQ', 0.5);
@@ -260,7 +260,7 @@ function montar(parciais, statusFontes) {
   for (const n of nosOrd) {
     if (n.tipo === 'nota') cont.notas++;
     else if (n.tipo === 'commit') { cont.commits++; cont.linhas += n.palavras; }
-    else if (n.tipo === 'sessao') { cont.sessoes++; cont.horasIA += n.extra.duracaoMs || 0; cont.ferramentas += n.extra.totalFerramentas || 0; }
+    else if (n.tipo === 'sessao') { if (!n.extra.agente) cont.sessoes++; cont.horasIA += n.extra.duracaoMs || 0; cont.ferramentas += n.extra.totalFerramentas || 0; }
     else if (n.tipo === 'arquivo' || n.tipo === 'doc') cont.arquivos++;
   }
   cont.horasIA = Math.round(cont.horasIA / 360000) / 10;

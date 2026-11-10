@@ -25,8 +25,8 @@ function limparPrompt(t) {
     .replace(/\s+/g, ' ').trim();
 }
 
-function ehPromptReal(d) {
-  if (d.isMeta || d.isSidechain) return false;
+function ehPromptReal(d, sidechain) {
+  if (d.isMeta || (d.isSidechain && !sidechain)) return false;
   const c = d.message && d.message.content;
   if (Array.isArray(c) && c.some((b) => b && b.type === 'tool_result')) return false;
   const t = textoDe(c).trim();
@@ -38,7 +38,7 @@ function arquivoDoInput(input) {
   return input.file_path || input.notebook_path || input.path || null;
 }
 
-async function lerSessao(arquivo) {
+async function lerSessao(arquivo, sidechain) {
   const s = {
     sessionId: path.basename(arquivo, '.jsonl'), arquivo, cwd: null, inicio: 0, fim: 0,
     msgsUser: 0, msgsAssist: 0, ferramentas: {}, arquivos: [], modelo: null, duracaoMs: 0,
@@ -63,7 +63,7 @@ async function lerSessao(arquivo) {
     if (d.version && !s.versao) s.versao = d.version;
     if (d.type === 'summary' && d.summary && !s.resumo) s.resumo = String(d.summary);
     if (d.type === 'user' && d.message) {
-      if (ehPromptReal(d)) {
+      if (ehPromptReal(d, sidechain)) {
         s.msgsUser++;
         const txt = limparPrompt(textoDe(d.message.content)) || textoDe(d.message.content).trim();
         if (s.prompts.length < 10) s.prompts.push({ t, texto: txt.slice(0, 300) });
@@ -116,19 +116,38 @@ async function ler(fonte) {
     const dir = path.join(raiz, p.name);
     let arqs = [];
     try { arqs = (await fs.promises.readdir(dir)).filter((f) => f.endsWith('.jsonl')); } catch { continue; }
-    for (const a of arqs) {
-      const abs = path.join(dir, a);
+    const lerComCache = async (abs, sidechain) => {
       let st;
-      try { st = await fs.promises.stat(abs); } catch { continue; }
+      try { st = await fs.promises.stat(abs); } catch { return null; }
       const c = cache[abs];
       let s;
       if (c && c.mtimeMs === st.mtimeMs && c.size === st.size) s = c.s;
       else {
-        try { s = await lerSessao(abs); } catch { continue; }
+        try { s = await lerSessao(abs, sidechain); } catch { return null; }
       }
       novoCache[abs] = { mtimeMs: st.mtimeMs, size: st.size, s };
-      if (!s.inicio) continue; // sessão vazia
-      sessoes.push({ ...s, pastaProjeto: p.name, mtimeMs: st.mtimeMs, ativa: Date.now() - st.mtimeMs < ATIVA_MS });
+      if (!s.inicio) return null; // sessão vazia
+      return { ...s, pastaProjeto: p.name, mtimeMs: st.mtimeMs, ativa: Date.now() - st.mtimeMs < ATIVA_MS };
+    };
+    for (const a of arqs) {
+      const s = await lerComCache(path.join(dir, a), false);
+      if (!s) continue;
+      sessoes.push(s);
+      // subagentes desta sessão: <projeto>/<sessão>/subagents/agent-*.jsonl
+      const subDir = path.join(dir, s.sessionId, 'subagents');
+      let subs = [];
+      try { subs = (await fs.promises.readdir(subDir)).filter((f) => f.endsWith('.jsonl')); } catch { subs = []; }
+      for (const sa of subs) {
+        const ag = await lerComCache(path.join(subDir, sa), true);
+        if (!ag) continue;
+        const agentId = sa.replace(/^agent-/, '').replace(/\.jsonl$/, '');
+        const meta = readJSON(path.join(subDir, sa.replace(/\.jsonl$/, '.meta.json')), {});
+        ag.agente = { id: agentId, tipo: meta.agentType || 'agente', descricao: meta.description || '', pai: s.sessionId };
+        ag.sessionId = s.sessionId + ':' + agentId;
+        if (!ag.cwd) ag.cwd = s.cwd;
+        if (meta.description) ag.titulo = ('AGENTE · ' + meta.description).slice(0, 80);
+        sessoes.push(ag);
+      }
     }
   }
   try { writeJSON(cacheArq, novoCache); } catch { /* cache é opcional */ }
@@ -142,19 +161,22 @@ async function ler(fonte) {
     nos.push({
       chave, tipo: 'sessao', fonte: 'claude', titulo: s.titulo, subregiao: 'SESSOES',
       criado: s.inicio, modificado: s.fim, palavras: s.msgsUser + s.msgsAssist,
-      autor: 'CLAUDE CODE', hash: s.sessionId.replace(/-/g, '').slice(0, 12), caminho: s.arquivo,
+      autor: s.agente ? 'AGENTE ' + String(s.agente.tipo).toUpperCase() : 'CLAUDE CODE',
+      hash: (s.agente ? s.agente.id : s.sessionId.replace(/-/g, '')).slice(0, 12), caminho: s.arquivo,
       projetoBruto: projetoDe(s, s.pastaProjeto), cwd: s.cwd,
       texto: [s.titulo, ...s.prompts.map((p) => p.texto), Object.keys(s.ferramentas).join(' '), s.arquivos.map((f) => baseName(f)).join(' ')].join('\n').slice(0, 4000),
       extra: {
         sessionId: s.sessionId, cwd: s.cwd, branch: s.branch, versao: s.versao, modelo: s.modelo,
         msgsUser: s.msgsUser, msgsAssist: s.msgsAssist, ferramentas: s.ferramentas, totalFerramentas: total,
         arquivos: s.arquivos, duracaoMs: s.duracaoMs, ativa: s.ativa, prompts: s.prompts, mtimeMs: s.mtimeMs,
+        agente: s.agente || null,
       },
       _eventos: s.eventos,
     });
     for (const f of s.arquivos) links.push({ de: chave, para: { caminho: f }, tipo: 'TOCA', peso: 0.6 });
+    if (s.agente) links.push({ de: 'sessao:' + s.agente.pai, para: chave, tipo: 'SEQ', peso: 0.8 });
     for (const e of s.eventos) {
-      eventos.push({ t: e.t, fonte: 'claude', msg: `TOOL ${e.ferramenta}${e.arquivo ? ' ' + baseName(e.arquivo) : ''} · ${s.sessionId.slice(0, 8)}`, chave, hash: s.sessionId.replace(/-/g, '').slice(0, 12), arquivo: e.arquivo });
+      eventos.push({ t: e.t, fonte: 'claude', msg: `TOOL ${e.ferramenta}${e.arquivo ? ' ' + baseName(e.arquivo) : ''} · ${s.agente ? 'AGENTE ' + s.agente.id.slice(0, 7) : s.sessionId.slice(0, 8)}`, chave, hash: s.sessionId.replace(/-/g, '').slice(0, 12), arquivo: e.arquivo });
     }
   }
   return { nos, links, eventos, itens: sessoes.length };

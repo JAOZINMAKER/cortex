@@ -5,6 +5,8 @@
  *  - Nós "arquivo" (arquivos tocados no git) ficam no CEREBELO; o resto dos neurônios do projeto fica no córtex.
  *  - No.cluster = -1 para nós sem nenhuma ligação (fora de qualquer comunidade).
  *  - Fontes "pasta" aceitam o campo opcional "ignorar": [subpastas relativas].
+ *  - Subagentes do Claude Code (<sessão>/subagents/agent-*.jsonl) também viram nós tipo "sessao",
+ *    com autor "AGENTE <TIPO>", ligados à sessão-mãe por SEQ; não contam em contadores.sessoes.
  *  - `node server/index.js --abrir` abre o navegador depois de subir (usado pelo abrir-cortex.bat).
  *  - A mensagem WS `grafo` só é enviada quando a estrutura muda (nós ou sinapses); mudanças só de
  *    metadados chegam como `evento` e já estão em /api/graph na próxima busca.
@@ -166,6 +168,37 @@ function emitirHistorico() {
   for (const e of hist.slice(-300)) telemetry.emitir({ t: e.t, nivel: 'HIST', fonte: e.fonte, msg: e.msg, id: e.id, hash: e.hash });
 }
 
+function assinaturaParcial(r) {
+  const h = require('crypto').createHash('sha1');
+  for (const n of r.nos) h.update(n.chave + '|');
+  for (const l of r.links) h.update(l.de + '>' + (typeof l.para === 'string' ? l.para : l.para.caminho) + l.tipo + '|');
+  return h.digest('hex');
+}
+
+function atualizarRapido(r) {
+  const CAMPOS = ['titulo', 'modificado', 'palavras', 'hash', 'texto', 'extra', '_eventos'];
+  for (const n of r.nos) {
+    const i = G.interno.porId.get(graph.idDe(n.chave));
+    if (i === undefined) return false;
+    const velho = G.interno.nos[i];
+    if (velho.tipo === 'nota' || velho.criado !== n.criado) return false; // datas de nota dependem do git
+    for (const c of CAMPOS) if (n[c] !== undefined) velho[c] = n[c];
+    const pub = G.publico.nos[i];
+    pub.titulo = velho.titulo; pub.modificado = Math.round(velho.modificado); pub.palavras = velho.palavras; pub.hash = velho.hash;
+    const reg = G.publico.regioes.find((x) => x.id === velho.regiao);
+    if (reg && velho.modificado > reg.ultimoPulso) reg.ultimoPulso = velho.modificado;
+  }
+  const c = G.publico.contadores;
+  let ms = 0, fer = 0;
+  for (const n of G.interno.nos) if (n.tipo === 'sessao') { ms += n.extra.duracaoMs || 0; fer += n.extra.totalFerramentas || 0; }
+  c.horasIA = Math.round(ms / 360000) / 10; c.ferramentas = fer;
+  versao++;
+  G.publico.versao = versao;
+  G.publico.geradoEm = Date.now();
+  cacheJson = null;
+  return true;
+}
+
 // mudanças vindas do watch
 const emAndamento = new Map();
 async function aoMudar(fonte, mudancas) {
@@ -178,8 +211,11 @@ async function aoMudar(fonte, mudancas) {
       telemetry.emitir({ nivel: 'INFO', fonte: fonte.tipo, msg: `FS ${m.tipo.toUpperCase()} ${fonte.tipo === 'git' ? '.git/' + path.basename(m.caminho) : baseName(m.caminho)}` });
     }
     if (mudancas.length > 20) telemetry.emitir({ nivel: 'INFO', fonte: fonte.tipo, msg: `FS +${mudancas.length - 20} MUDANÇAS` });
+    const antes = parciais.get(fonte.id) && parciais.get(fonte.id).r;
+    const sigAntes = antes ? assinaturaParcial(antes) : null;
     const reg = await lerFonte(fonte);
-    montarGrafo('mudança em ' + fonte.tipo);
+    // caminho rápido: mesma estrutura (ex.: sessão do Claude que só ganhou mensagens) → atualiza metadados sem remontar
+    if (!(G && reg.r && sigAntes && assinaturaParcial(reg.r) === sigAntes && atualizarRapido(reg.r))) montarGrafo('mudança em ' + fonte.tipo);
     eventosNovos(reg);
   } catch (e) {
     telemetry.emitir({ nivel: 'ALERTA', fonte: fonte.tipo, msg: 'ERRO NA RECONSTRUÇÃO ' + e.message });
@@ -205,7 +241,8 @@ function sessoesAtivas() {
     const mt = n.extra.mtimeMs || n.modificado;
     if (agora - Math.max(mt, n.modificado) > 5 * 60 * 1000) continue;
     out.push({ id: n.id, idCurto: n.idCurto, titulo: n.titulo, regiao: n.regiao, projeto: n.projeto, inicio: n.criado, ultimoEvento: n.modificado,
-      ferramentas: n.extra.totalFerramentas || 0, arquivos: (n.extra.arquivos || []).length, modelo: n.extra.modelo, mensagens: n.palavras });
+      ferramentas: n.extra.totalFerramentas || 0, arquivos: (n.extra.arquivos || []).length, modelo: n.extra.modelo, mensagens: n.palavras,
+      agente: n.extra.agente ? { id: n.extra.agente.id, tipo: n.extra.agente.tipo, pai: n.extra.agente.pai } : null });
   }
   return out.sort((a, b) => b.ultimoEvento - a.ultimoEvento);
 }
@@ -255,7 +292,7 @@ async function detalheNo(id) {
     const e = n.extra;
     conteudo.corpo = (e.prompts || []).map((p) => '› ' + p.texto).join('\n\n');
     conteudo.extra = { sessionId: e.sessionId, cwd: e.cwd, branch: e.branch, modelo: e.modelo, versao: e.versao, msgsUser: e.msgsUser, msgsAssist: e.msgsAssist,
-      ferramentas: e.ferramentas, totalFerramentas: e.totalFerramentas, arquivos: e.arquivos, duracaoMs: e.duracaoMs, ativa: e.ativa, prompts: e.prompts };
+      ferramentas: e.ferramentas, totalFerramentas: e.totalFerramentas, arquivos: e.arquivos, duracaoMs: e.duracaoMs, ativa: e.ativa, prompts: e.prompts, agente: e.agente };
     for (const ev of (n._eventos || []).slice(-200)) historico.push({ t: ev.t, evento: 'TOOL ' + ev.ferramenta + (ev.arquivo ? ' ' + baseName(ev.arquivo) : '') });
   } else if (n.tipo === 'doc' || n.tipo === 'arquivo') {
     if (n.caminho && ehTexto(n.caminho) && existe(n.caminho)) {
@@ -455,7 +492,7 @@ classify.onAtualizar((r) => {
 // ---------------------------------------------------------------- boot
 function abrirNavegador(url) {
   const { spawn } = require('child_process');
-  const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '""', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
   try { spawn(cmd[0], cmd[1], { detached: true, stdio: 'ignore', windowsHide: true }).unref(); } catch { /* sem navegador */ }
 }
 
