@@ -17,7 +17,7 @@ const REGRAS = [
   ['DOCS', /\b(readme|docs?|documenta\w*|guia|manual|wiki|tutorial|help|ajuda)\b/i],
   ['PLANO', /\b(plano|plan|roadmap|todo|tarefa|próximos passos|proximos passos|meta|objetivo|sprint|backlog)\b/i],
   ['ROBLOX', /\b(roblox|studio|rbx|rbxl|luau|datastore|remoteevent|workspace|humanoid)\b/i],
-  ['IA', /\b(claude|ia|ai|llm|gpt|agente|agent|prompt|modelo|anthropic|subagent)\b/i],
+  ['IA', /\b(claude|llm|gpt|agente|agentes|agent|agents|prompt|prompts|anthropic|subagent|intelig[êe]ncia artificial|artificial intelligence)\b/i],
   ['CONFIG', /\b(config|configura\w*|settings|\.json|\.ya?ml|\.env|package\.json|setup|instal\w*)\b/i],
   ['TESTE', /\b(test(e|es|s)?|spec|jest|vitest|playwright|assert|benchmark|bench)\b/i],
   ['ASSET', /\b(asset|png|jpe?g|svg|wav|mp3|ogg|textura|sprite|modelo 3d|fbx|blend|imagem|image)\b/i],
@@ -65,7 +65,7 @@ function classificar(nos) {
     if (!c || c.k !== chaveCache) {
       const tf = new Map();
       for (const w of tokens(n.titulo + ' ' + n.titulo + ' ' + (n.texto || ''))) tf.set(w, (tf.get(w) || 0) + 1);
-      const curto = `${n.titulo}\n${n.caminho || ''}`;
+      const curto = `${n.titulo}\n${(n.extra && n.extra.rel) || ''}`;
       const texto = (n.texto || '').slice(0, 4000);
       const regras = [];
       for (const [tag, re, reG] of REGRAS) {
