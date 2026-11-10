@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CÓRTEX</title>
+<link rel="stylesheet" href="/css/cortex.css">
+<script type="importmap">
+{ "imports": {
+  "three": "/vendor/three/build/three.module.js",
+  "three/addons/": "/vendor/three/examples/jsm/",
+  "marked": "/vendor/marked.esm.js"
+} }
+</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="regua"></canvas>
+<div id="rotulos"></div>
+<svg id="anel" xmlns="http://www.w3.org/2000/svg"></svg>
+<div id="dica" class="dica"></div>
+
+<header id="topo">
+  <div class="marca">
+    <div class="logo">CÓRTEX<span class="cursor">█</span></div>
+    <div class="sub"><span id="serial">UNIDADE CX-01</span> · SEGUNDO CÉREBRO LOCAL · <span id="relogio">--:--:--.---</span></div>
+  </div>
+  <div id="contadores" class="contadores"></div>
+  <div class="aviso-caixa"><div id="aviso" class="aviso">INICIALIZANDO<span class="cursor">_</span></div><div id="aviso2" class="aviso2"></div></div>
+</header>
+
+<aside id="log">
+  <div class="cab"><span>LOG // EVENTOS</span><span id="log-n">0</span></div>
+  <div class="cab2"><span>T (MS)</span><span>NÍVEL</span><span>FONTE · MENSAGEM</span></div>
+  <div id="log-linhas" class="log-linhas"></div>
+</aside>
+
+<aside id="direita">
+  <section class="bloco" id="status">
+    <div class="cab"><span>STATUS // PROCESSO</span><span class="pisca vermelho">●</span></div>
+    <div id="status-grade" class="status-grade"></div>
+    <canvas id="fps-graf" width="256" height="34"></canvas>
+  </section>
+  <section class="bloco">
+    <div class="cab"><span>SOBREPOSIÇÕES</span><span>1–5</span></div>
+    <div id="sobre" class="sobre"></div>
+  </section>
+  <section class="bloco">
+    <div class="cab"><span>FONTES</span><button class="btn-mini" id="btn-conectar">+ CONECTAR</button></div>
+    <div id="fontes-lista" class="fontes-lista"></div>
+  </section>
+  <section class="bloco">
+    <div class="cab"><span>MINIMAPA // XZ · ZY</span><span id="mini-zoom">—</span></div>
+    <canvas id="mini" width="256" height="128"></canvas>
+  </section>
+  <section class="bloco acoes">
+    <button id="btn-maquina">[M] MÁQUINA</button><button id="btn-cmd">[CTRL+K] COMANDO</button><button id="btn-som">[S] SOM: OFF</button>
+  </section>
+</aside>
+
+<footer id="linha">
+  <button id="rp-play" class="rp-btn">▶ REPLAY</button>
+  <div class="rp-vel" id="rp-vel"></div>
+  <div class="rp-trilho"><canvas id="rp-hist"></canvas><div id="rp-cursor" class="rp-cursor"><span id="rp-data">—</span></div></div>
+  <div class="rp-info" id="rp-info">—</div>
+</footer>
+
+<div id="cam-info" class="cam-info"></div>
+<div id="nivel" class="nivel"></div>
+<div id="bench-selo" class="bench-selo" hidden>BENCH — DADOS SINTÉTICOS</div>
+
+<!-- Neurônio aberto -->
+<section id="painel-no" class="painel-no" hidden></section>
+
+<!-- Painel da máquina -->
+<section id="maquina" class="maquina" hidden></section>
+
+<!-- Barra de comando -->
+<div id="cmd" class="modal-fundo" hidden>
+  <div class="cmd">
+    <div class="cmd-topo"><span class="vermelho">&gt;</span><input id="cmd-in" autocomplete="off" spellcheck="false" placeholder="BUSCAR NEURÔNIO, NOTA, COMMIT, SESSÃO OU AÇÃO"><span class="cmd-dica">↑↓ ENTER ESC</span></div>
+    <div id="cmd-res" class="cmd-res"></div>
+    <div id="cmd-rodape" class="cmd-rodape"></div>
+  </div>
+</div>
+
+<!-- Conectar -->
+<div id="conectar" class="modal-fundo" hidden>
+  <div class="conectar">
+    <div class="cab"><span>CONECTAR FONTE // TOPOLOGIA DE ENTRADA</span><button class="btn-mini" data-fechar>ESC FECHAR</button></div>
+    <div id="con-lista" class="con-lista"></div>
+    <form id="con-form" class="con-form">
+      <label>TIPO<select name="tipo"><option value="obsidian">OBSIDIAN — COFRE</option><option value="git">GIT — REPOSITÓRIO</option><option value="claude">CLAUDE CODE — CONVERSAS</option><option value="pasta">PASTA COMUM</option></select></label>
+      <label class="largo">CAMINHO<input name="caminho" placeholder="C:\Users\jaozin\Documents\..." required></label>
+      <label>PROJETO<input name="projeto" placeholder="glass-pets"></label>
+      <button type="submit">CONECTAR ▸</button>
+    </form>
+    <div id="con-msg" class="con-msg"></div>
+  </div>
+</div>
+
+<div class="scan"></div><div class="ruido"></div><div class="vinheta"></div>
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>

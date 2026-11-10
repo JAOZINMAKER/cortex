@@ -124,7 +124,7 @@ function calcular(nos, regioesIds) {
         const { s, u } = tParaHemi(Math.min(0.9999, Math.max(0, t)));
         const alfa = ALFA_MIN + (ALFA_MAX - ALFA_MIN) * Math.pow(rnd(), 0.92);
         const idade = 1 - rank.get(n.id);
-        let prof = 0.03 + 0.44 * Math.pow(idade, 0.85) + 0.025 * rnd();
+        let prof = 0.02 + 0.17 * Math.pow(idade, 0.85) + 0.015 * rnd(); // superfície: giros legíveis
         if (n.tipo === 'branch' || n.tipo === 'worktree') prof = 0.55 + 0.08 * rnd(); // "tálamo"
         n.pos = pontoCortex(s, u, alfa, prof).map((v) => Math.round(v * 10) / 10);
       }
@@ -149,7 +149,7 @@ function calcular(nos, regioesIds) {
       const v = v0 + (v1 - v0) * (0.05 + 0.9 * rnd());
       const phi = -0.35 * Math.PI + rnd() * 1.55 * Math.PI;
       const idade = porIdade.length > 1 ? 1 - i / (porIdade.length - 1) : 0;
-      const prof = 0.03 + 0.38 * Math.pow(idade, 0.9) + 0.02 * rnd();
+      const prof = 0.03 + 0.22 * Math.pow(idade, 0.9) + 0.02 * rnd();
       n.pos = pontoCerebelo(v, phi, prof).map((x) => Math.round(x * 10) / 10);
     });
     if (!info.has(r)) {
