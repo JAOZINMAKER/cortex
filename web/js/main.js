@@ -118,7 +118,7 @@ class App {
   async reconstruir() { this.hud.log({ t: Date.now(), nivel: 'ALERTA', fonte: 'sistema', msg: 'RECONSTRUÇÃO SOLICITADA' }); this.atualizando = true; try { await fetch('/api/reconstruir', { method: 'POST' }); } catch {} setTimeout(() => this.atualizando = false, 3000); }
   _sobreUI() {
     const box = $('#sobre'); const g = this.g;
-    const cont = { calor: () => g ? g.nos.filter(n => Date.now() - n.modificado < 7 * DIA).length + ' 7D' : '', idade: () => g ? fmtRel(Math.min(...g.nos.map(n => n.criado))) : '', cluster: () => g ? new Set(g.nos.map(n => n.cluster)).size + ' CL' : '', caminho: () => this.caminhoInfo ? this.caminhoInfo.arestas.length + ' S' : 'BFS', orfaos: () => g ? g.nos.filter(n => n.orfao).length + '' : '' };
+    const cont = { calor: () => g ? g.nos.filter(n => Date.now() - n.modificado < 7 * DIA).length + ' 7D' : '', idade: () => g ? fmtRel(g.nos.reduce((m, n) => (isFinite(n.criado) && n.criado < m ? n.criado : m), Date.now())) : '', cluster: () => g ? new Set(g.nos.map(n => n.cluster)).size + ' CL' : '', caminho: () => this.caminhoInfo ? this.caminhoInfo.arestas.length + ' S' : 'BFS', orfaos: () => g ? g.nos.filter(n => n.orfao).length + '' : '' };
     box.innerHTML = this.sobre.map(o => `<div class="sob${this.modo === o.id ? ' on' : ''}" data-m="${o.id}"><span class="tecla">${o.tecla}</span><span>${o.nome}</span><span class="est">${this.modo === o.id ? 'ON' : (cont[o.id]?.() ?? '')}</span></div>`).join('');
     box.querySelectorAll('[data-m]').forEach(d => d.onclick = () => this.alternarModo(d.dataset.m));
   }

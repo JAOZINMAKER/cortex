@@ -93,7 +93,10 @@ export class Cerebro {
     const ant = this.g; const antIds = ant ? new Map(ant.nos.map((n, i) => [n.id, i])) : null;
     const focoId = this.foco >= 0 && ant ? ant.nos[this.foco].id : null;
     this.g = g; const N = g.nos.length, E = g.sinapses.length;
-    this.t0 = Math.min(...g.nos.map(n => n.criado).filter(isFinite)); this.t1 = Math.max(Date.now(), ...g.nos.map(n => n.modificado).filter(isFinite));
+    // laço em vez de spread: cofres muito grandes estouram o limite de argumentos; grafo vazio cai em "hoje − 1 dia"
+    let t0 = Infinity, t1 = Date.now();
+    for (const n of g.nos) { if (isFinite(n.criado) && n.criado < t0) t0 = n.criado; if (isFinite(n.modificado) && n.modificado > t1) t1 = n.modificado; }
+    this.t0 = isFinite(t0) ? t0 : t1 - 864e5; this.t1 = t1;
     this.ids = new Map(g.nos.map((n, i) => [n.id, i]));
     // adjacência CSR
     const deg = new Uint32Array(N); for (const s of g.sinapses) { deg[s.a]++; deg[s.b]++; }
