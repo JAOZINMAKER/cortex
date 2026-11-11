@@ -62,7 +62,7 @@ export class Ajustes {
       <div class="pv-seg">${[['minima', 'MÍNIMA'], ['normal', 'NORMAL'], ['maxima', 'MÁXIMA']].map(([k, t]) => `<button data-dens="${k}" class="${a.densidadeRotulos === k ? 'on' : ''}">DENSIDADE ${t}</button>`).join('')}</div>
       <div class="pv-rot">PAINÉIS DO HUD</div>${PAINEIS.map(([k, t]) => ck('paineis.' + k, t, a.paineis[k])).join('')}
       <div class="pv-rot">COR POR FONTE <span>SOBREPÕE O TEMA</span></div>
-      <div class="aj-cores">${['obsidian', 'git', 'claude', 'pasta'].map(k => `<label><input type="color" data-cor="${k}" value="${a.coresFonte[k] || tema.atual().d3[k]}"><span>${k.toUpperCase()}</span>${a.coresFonte[k] ? `<button class="btn-mini" data-cor-x="${k}">TEMA</button>` : ''}</label>`).join('')}</div>
+      <div class="aj-cores">${['obsidian', 'git', 'claude', 'pasta', 'diario'].map(k => `<label><input type="color" data-cor="${k}" value="${a.coresFonte[k] || tema.atual().d3[k]}"><span>${k === 'diario' ? 'DIÁRIO' : k.toUpperCase()}</span>${a.coresFonte[k] ? `<button class="btn-mini" data-cor-x="${k}">TEMA</button>` : ''}</label>`).join('')}</div>
       <div class="pv-rot">OUTROS</div>${ck('som', 'SOM DE MÁQUINA', a.som)}
       <div class="aj-l"><span>VISÃO INICIAL</span></div><select class="pv-in" data-vi>${visoes.map(v => `<option value="${esc(v.id)}" ${a.visaoInicial === v.id ? 'selected' : ''}>${esc(v.nome)}</option>`).join('')}</select>
       <div class="pv-desc" data-salvo>${this.servidor ? 'SALVA SOZINHO NO SERVIDOR' : 'SALVA NESTE NAVEGADOR'}</div>

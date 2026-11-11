@@ -71,7 +71,7 @@ class App {
   async carregar() {
     this.carregando = true; this.hud.aviso('PROCESSANDO REGISTROS', false);
     if (BENCH) { this.relayout(); this.aplicarGrafo(grafoBench(BENCH, +params.get('sin') || 3)); this.carregando = false; return; }
-    for (let k = 0; ; k++) { try { const r = await fetch('/api/fontes'); if (r.ok) break; } catch {} this.hud.aviso('AGUARDANDO SERVIDOR · TENTATIVA ' + (k + 1), false); await new Promise(r => setTimeout(r, 1500)); }
+    for (let k = 0; ; k++) { try { let r = await fetch('/api/status'); if (r.ok) { const st = await r.json(); this.hud.status = { ...this.hud.status, ...st }; break; } r = await fetch('/api/fontes'); if (r.ok) break; } catch {} this.hud.aviso('AGUARDANDO SERVIDOR · TENTATIVA ' + (k + 1), false); await new Promise(r => setTimeout(r, 1500)); }
     await this.ajustes.carregar(); await this.visoes.carregarListas();
     const vi = this.ajustes.a.visaoInicial; const v0 = this.visoes.daUrl() || (vi && vi !== 'tudo' ? { id: vi, _soId: true } : TUDO);
     for (let k = 0; k < 20 && !this.g; k++) { await this.visoes.aplicar(v0, { url: !!this.visoes.daUrl() }); if (!this.g) await new Promise(r => setTimeout(r, 1500)); }
@@ -84,7 +84,7 @@ class App {
   }
   avisoGrande(t1, t2) { const a = $('#aviso-grande'); a.querySelector('.ag1').textContent = t1; a.querySelector('.ag2').textContent = t2 || ''; a.hidden = false; a.style.animation = 'none'; void a.offsetWidth; a.style.animation = ''; clearTimeout(this._agT); this._agT = setTimeout(() => a.hidden = true, 3000); }
   aplicarGrafo(g, opt = {}) {
-    for (const n of g.nos) if (n.fonte === 'diario' || (!n.diario && /[\\/]diario[\\/]/i.test(n.caminho || '') && /cortex/i.test(n.caminho || ''))) n.diario = true;
+    for (const n of g.nos) if (n.fonte === 'diario' || (!n.diario && /[\\/]diario[\\/]/i.test(n.caminho || '') && /cortex/i.test(n.caminho || ''))) { n.diario = true; n.fonte = 'diario'; }
     const ant = this.g; this.g = g; this._orf = null; this.cerebro.setGrafo(g, opt); this.rotulos.setGrafo(g); this.hud.setGrafo(g); this.replay.setGrafo(g);
     this.porTitulo = new Map(); this.porCaminho = new Map();
     for (const n of g.nos) { const k = n.titulo.toLowerCase(); if (!this.porTitulo.has(k)) this.porTitulo.set(k, n.id); if (n.caminho) this.porCaminho.set(n.caminho.replace(/\\/g, '/').toLowerCase(), n.id); }
@@ -183,7 +183,7 @@ class App {
     const tick = () => {
       requestAnimationFrame(tick);
       const t = performance.now(); const dt = Math.min(0.1, (t - ult) / 1000); ult = t; fps += ((1 / Math.max(dt, 1e-3)) - fps) * 0.08; this.fpsAtual = fps;
-      if (!this.g) return;
+      if (!this.g) { const st = this.hud.status; const mt = $('#montando'); const m = st.pronto === false || st.fase === 'MONTANDO'; if (mt.hidden === m) mt.hidden = !m; if (m) this.hud.aviso('MONTANDO O CÉREBRO…', false); return; }
       const t0 = performance.now();
       this.replay.quadro(dt); this.cerebro.quadro(dt); this.rotulos.atualizar(); if (++q % 2 === 0) this._dica();
       const c = this.cerebro, g = this.g; const vivos = this.replay.ativo ? this.replay.vivos : g.nos.length; c.nVivos = vivos;
@@ -191,9 +191,12 @@ class App {
       // avisos com números reais
       const agora = performance.now(); this.evts = this.evts.filter(x => agora - x < 5000);
       const regs = g.contadores.neuronios + g.contadores.sinapses;
-      const proc = this.carregando || this.atualizando || this.replay.tocando || (this.hud.status.fila || 0) > 0 || agora - this.ultEvento < 2500;
+      const st = this.hud.status; const montando = st.pronto === false || st.fase === 'MONTANDO';
+      const mt = $('#montando'); if (mt.hidden === montando) mt.hidden = !montando;
+      if (montando && q % 6 === 0) mt.querySelector('.m2').textContent = `FASE ${st.fase || 'MONTANDO'} · ${fmtN(st.neuronios ?? g.nos.length)} NEURÔNIOS LIDOS · FILA ${st.fila ?? 0}`;
+      const proc = montando || this.carregando || this.atualizando || this.replay.tocando || (this.hud.status.fila || 0) > 0 || agora - this.ultEvento < 2500;
       if (q % 6 === 0) {
-        const txt = this.replay.tocando ? `REPLAY // RECONSTRUINDO ${fmtN(vivos)} REGISTROS` : proc ? `PROCESSANDO ${fmtN(regs)} REGISTROS` : `VIGIANDO ${fmtN(regs)} REGISTROS`;
+        const txt = montando ? 'MONTANDO O CÉREBRO…' : this.replay.tocando ? `REPLAY // RECONSTRUINDO ${fmtN(vivos)} REGISTROS` : proc ? `PROCESSANDO ${fmtN(regs)} REGISTROS` : `VIGIANDO ${fmtN(regs)} REGISTROS`;
         const fontesOk = (g.fontes || []).filter(f => f.status === 'OK').length;
         const orf = this._orf ?? (this._orf = g.nos.filter(n => n.orfao).length);
         this.hud.aviso(txt, !proc, `FONTES ${fontesOk}/${(g.fontes || []).length} OK · GRAFO V${g.versao} · GERADO ${fmtMs(g.geradoEm)}<br>${(g.contadores.sinapses / Math.max(1, g.contadores.neuronios)).toFixed(2).replace('.', ',')} SIN/NEURÔNIO · ${fmtN(orf)} ÓRFÃOS · ${(this.evts.length / 5).toFixed(1).replace('.', ',')} EVT/S<br>ÚLTIMO EVENTO ${this.ultEvento ? ((agora - this.ultEvento) / 1000).toFixed(1).replace('.', ',') + 'S' : '—'} · FOCO ${c.foco >= 0 ? g.nos[c.foco].idCurto : 'NENHUM'} · MODO ${(this.modo || 'NORMAL').toUpperCase()}`);

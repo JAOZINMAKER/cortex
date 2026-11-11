@@ -6,23 +6,23 @@ export const TEMAS = {
   grafite: {
     nome: 'GRAFITE', desc: 'Industrial quente, painel de instrumento',
     ui: { fundo: '#0c0c0b', painel: '#141413', grade: '#22211e', linha: '#33312c', texto: '#ece8df', cinza: '#8f8a80', apagado: '#55524b', acento: '#ff6a2b', maquina: '#9fb4c7', alerta: '#ff6a2b' },
-    d3: { obsidian: '#ece8df', git: '#ff6a2b', claude: '#9fb4c7', pasta: '#8f8a80', dia: '#7a3a1e' },
+    d3: { obsidian: '#ece8df', git: '#ff6a2b', claude: '#9fb4c7', pasta: '#8f8a80', dia: '#7a3a1e', diario: '#b8b4c4' },
     clusters: ['#ece8df', '#ff6a2b', '#9fb4c7', '#c9b48a', '#7d8f7a', '#b07a5a', '#6f7f96', '#d9d2c3'],
   },
   ambar: {
     nome: 'ÂMBAR', desc: 'Fósforo CRT monocromático',
     ui: { fundo: '#0a0806', painel: '#120e0a', grade: '#241c13', linha: '#3a2d1e', texto: '#f3d9b1', cinza: '#a08560', apagado: '#5e4c36', acento: '#ffa23a', maquina: '#ffd58a', alerta: '#ff5a36' },
-    d3: { obsidian: '#f3d9b1', git: '#ffa23a', claude: '#ffd58a', pasta: '#a08560', dia: '#6b3d14' },
+    d3: { obsidian: '#f3d9b1', git: '#ffa23a', claude: '#ffd58a', pasta: '#a08560', dia: '#6b3d14', diario: '#ffcd84' },
   },
   mono: {
     nome: 'MONO', desc: 'Cinzas puros, um acento verde-ácido',
     ui: { fundo: '#0a0a0a', painel: '#121212', grade: '#202020', linha: '#303030', texto: '#f0f0f0', cinza: '#8c8c8c', apagado: '#4d4d4d', acento: '#c8f53c', maquina: '#d8d8d8', alerta: '#ff4d4d' },
-    d3: { obsidian: '#f0f0f0', git: '#c8f53c', claude: '#a8a8a8', pasta: '#6a6a6a', dia: '#4f6620' },
+    d3: { obsidian: '#f0f0f0', git: '#c8f53c', claude: '#a8a8a8', pasta: '#6a6a6a', dia: '#4f6620', diario: '#e1cfc1' },
   },
   violeta: {
     nome: 'VIOLETA', desc: 'Frio e elegante',
     ui: { fundo: '#0b0a10', painel: '#12111a', grade: '#211f2e', linha: '#322f45', texto: '#ecebf5', cinza: '#8d8aa3', apagado: '#514e66', acento: '#8f7cff', maquina: '#c9c2ff', alerta: '#ff5d73' },
-    d3: { obsidian: '#ecebf5', git: '#8f7cff', claude: '#c9c2ff', pasta: '#8d8aa3', dia: '#3c3170' },
+    d3: { obsidian: '#ecebf5', git: '#8f7cff', claude: '#c9c2ff', pasta: '#8d8aa3', dia: '#3c3170', diario: '#d5bee0' },
   },
 };
 export const NOMES = Object.keys(TEMAS);
@@ -50,7 +50,7 @@ function derivar3d(T) {
   const git = rgb(d.git);
   return {
     fundo,
-    fonte: { obsidian: rgb(d.obsidian), git: mix(git, cz, 0.35), claude: rgb(d.claude), pasta: rgb(d.pasta), sistema: rgb(d.dia) },
+    fonte: { obsidian: rgb(d.obsidian), git: mix(git, cz, 0.35), claude: rgb(d.claude), pasta: rgb(d.pasta), diario: rgb(d.diario || u.maquina), sistema: rgb(d.dia) },
     // massas grandes de git (arquivos e commits) atenuadas para não virar mancha
     tipo: { arquivo: mix(mix(git, cz, 0.6), fundo, 0.55), commit: mix(git, cz, 0.45), branch: git, worktree: git, dia: rgb(d.dia) },
     sinapse: { LINK: mix(tx, cz, 0.35), EMBED: tx, PAI: mix(mix(git, cz, 0.5), fundo, 0.3), TOCA: mix(mix(git, cz, 0.55), fundo, 0.5), SEQ: rgb(u.maquina), DIA: mix(rgb(d.dia), fundo, 0.3), BRANCH: git, TAG: cz },
@@ -75,7 +75,7 @@ function aplicarCss() {
   // variações translúcidas usadas pelo CSS
   r.setProperty('--fundo-90', rgba(u.fundo, 0.9)); r.setProperty('--fundo-80', rgba(u.fundo, 0.8)); r.setProperty('--fundo-60', rgba(u.fundo, 0.6)); r.setProperty('--fundo-40', rgba(u.fundo, 0.4));
   r.setProperty('--acento-15', rgba(u.acento, 0.15)); r.setProperty('--maquina-30', rgba(u.maquina, 0.3)); r.setProperty('--texto-03', rgba(u.texto, 0.025));
-  const d = { ...T.d3, ...sobreFonte }; for (const k of ['obsidian', 'git', 'claude', 'pasta', 'dia']) r.setProperty('--d3-' + k, d[k]);
+  const d = { ...T.d3, ...sobreFonte }; for (const k of ['obsidian', 'git', 'claude', 'pasta', 'dia', 'diario']) r.setProperty('--d3-' + k, d[k]);
   document.documentElement.dataset.tema = nomeAtual;
   const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = u.fundo;
 }

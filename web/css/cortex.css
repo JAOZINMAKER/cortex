@@ -303,7 +303,12 @@ input[type=range] { width: 100%; accent-color: var(--acento); margin: 4px 0 8px;
 .aviso-grande .ag2 { font-size: 10px; letter-spacing: .1em; margin-top: 6px; }
 @keyframes ag { 50% { opacity: .2; } }
 .rg .cx { pointer-events: auto; cursor: zoom-in; }
-.nr.diario .c b::after { content: " DIÁRIO"; color: var(--maquina); font-weight: 400; font-size: 8px; letter-spacing: .1em; }
-.tag-diario { display: inline-block; border: 1px solid var(--maquina); color: var(--maquina); font-size: 9px; padding: 0 5px; margin-left: 6px; letter-spacing: .1em; vertical-align: 3px; }
+.nr.f-diario { color: var(--d3-diario); }
+.nr.diario .c b::after { content: " DIÁRIO"; color: var(--d3-diario); font-weight: 400; font-size: 8px; letter-spacing: .1em; }
+.tag-diario { display: inline-block; border: 1px solid var(--d3-diario); color: var(--d3-diario); font-size: 9px; padding: 0 5px; margin-left: 6px; letter-spacing: .1em; vertical-align: 3px; }
 body.painel-aberto .visao-sel { left: calc((100vw - 560px + var(--esq)) / 2); transform: translateX(-50%); max-width: calc(100vw - 560px - var(--esq) - 24px); }
 body.painel-aberto .visao-sel .vd { display: none; }
+.montando { position: fixed; left: calc(var(--esq) + (100vw - var(--esq) - var(--dir)) / 2); top: 50%; transform: translate(-50%, -50%); z-index: 13; text-align: center; pointer-events: none; }
+.montando .m1 { font-size: 44px; font-weight: 800; font-stretch: 75%; color: var(--texto); letter-spacing: .02em; text-shadow: 0 0 12px var(--fundo); }
+.montando .m1 .cursor { color: var(--acento); }
+.montando .m2 { font-size: 10px; letter-spacing: .14em; color: var(--cinza); margin-top: 8px; }

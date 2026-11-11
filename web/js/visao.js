@@ -4,7 +4,7 @@ import { $, el, esc, fmtN, fmtData } from './util.js';
 
 const DIA = 864e5;
 const LISTAS = ['projetos', 'fontes', 'tipos', 'tags'];
-const FONTES = [['obsidian', 'OBSIDIAN'], ['git', 'GIT'], ['claude', 'CLAUDE CODE'], ['pasta', 'PASTA']];
+const FONTES = [['obsidian', 'OBSIDIAN'], ['git', 'GIT'], ['claude', 'CLAUDE CODE'], ['pasta', 'PASTA'], ['diario', 'DIÁRIO']];
 const TIPOS = [['nota', 'NOTA'], ['commit', 'COMMIT'], ['sessao', 'SESSÃO'], ['arquivo', 'ARQUIVO'], ['branch', 'BRANCH'], ['worktree', 'WORKTREE'], ['doc', 'DOC']];
 export const TUDO = { id: 'tudo', nome: 'TUDO' };
 

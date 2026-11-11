@@ -104,7 +104,7 @@ export class Rotulos {
         const e = this.nr[usados]; const chave = i * 4 + nivel;
         if (this.atual[usados] !== chave) {
           this.atual[usados] = chave;
-          e.className = 'nr f-' + n.fonte + (n.diario ? ' diario f-claude' : '') + (nivel === 0 ? '' : nivel === 1 ? ' peq' : ' peq marc');
+          e.className = 'nr f-' + n.fonte + (n.diario ? ' diario' : '') + (nivel === 0 ? '' : nivel === 1 ? ' peq' : ' peq marc');
           e.innerHTML = nivel === 0 ? `<span class="c"><b>${n.idCurto}</b> ${esc(tL)} <i>${meta}</i></span>` : nivel === 1 ? `<span class="c"><b>${n.idCurto}</b> ${esc(tC)}</span>` : `<span class="c"><b>${n.idCurto}</b></span>`;
           e.firstChild.style.maxWidth = w + 'px';
         }
@@ -181,7 +181,7 @@ export class Rotulos {
     // campos radiais
     const tags = (d?.maquina?.tags || n.tags || []).slice(0, 5).join(' ').toUpperCase();
     const campos = [
-      ['HASH', n.hash], ['AUTOR', n.autor], ['CRIADO', fmtDataHora(n.criado)], ['MODIF.', fmtDataHora(n.modificado) + ' · ' + fmtRel(n.modificado)],
+      ['HASH', n.hash], [n.diario ? 'REGISTRADO POR' : 'AUTOR', n.autor], ['CRIADO', fmtDataHora(n.criado)], ['MODIF.', fmtDataHora(n.modificado) + ' · ' + fmtRel(n.modificado)],
       ['TAGS MÁQ.', tags || '—'], ['CAMINHO', n.caminho || '—'], ['REGIÃO', n.regiao + ' / ' + (n.subregiao || '')], ['GRAU · PALAVRAS', `${n.grau} · ${fmtN(n.palavras)}`]
     ];
     const angs = [-56, -30, -4, 22, 48, 160, 196, 222];
@@ -194,7 +194,7 @@ export class Rotulos {
       const t2 = add('text', { x: x1 + dir * 4, y: y1 + 9, 'text-anchor': dir > 0 ? 'start' : 'end', class: 'f-t', 'font-size': 9.5, 'font-family': 'Martian Mono Variable, monospace' }); t2.textContent = corta(v, k);
     });
     // título e trecho
-    const t = add('text', { x: 0, y: -R - 30, 'text-anchor': 'middle', class: 'f-t', 'font-size': 15, 'font-weight': 800, 'font-stretch': '75%', 'font-family': 'Martian Mono Variable, monospace' }); t.textContent = (n.idCurto + ' ' + n.titulo).slice(0, 56).toUpperCase();
+    const t = add('text', { x: 0, y: -R - 30, 'text-anchor': 'middle', class: 'f-t', 'font-size': 15, 'font-weight': 800, 'font-stretch': '75%', 'font-family': 'Martian Mono Variable, monospace' }); t.textContent = ((n.diario ? 'DIÁRIO · ' : '') + n.idCurto + ' ' + n.titulo).slice(0, 56).toUpperCase();
     const bg = add('rect', { x: -6, y: -R - 46, width: 12, height: 4, class: 'f-v' });
     const trecho = d?.conteudo?.corpo ? d.conteudo.corpo.replace(/^---[\s\S]*?---/, '').replace(/[#>*`\[\]_|-]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 240) : '';
     if (trecho) add('rect', { x: -200, y: R + 12, width: 400, height: 62, class: 'f-f' });

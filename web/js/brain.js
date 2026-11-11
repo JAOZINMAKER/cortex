@@ -168,7 +168,7 @@ export class Cerebro {
   }
   // ---------------------------------------------------------------- tema
   _temaUniforms() { const D = tema.d3(); this.renderer.setClearColor(new THREE.Color().setRGB(...D.fundo, THREE.SRGBColorSpace), 1); this.u.uCorFlash.value.set(...D.flash); this.u.uCorNasc.value.set(...D.nascimento); this.us.uCorDest.value.set(...D.destaque); }
-  _corNo(n) { const D = tema.d3(); if (n.diario) return D.fonte.claude; return D.tipo[n.tipo] || D.fonte[n.fonte] || D.fonte.pasta; }
+  _corNo(n) { const D = tema.d3(); if (n.diario || n.fonte === 'diario') return D.fonte.diario; return D.tipo[n.tipo] || D.fonte[n.fonte] || D.fonte.pasta; }
   _coresNos(arr) { this.g.nos.forEach((n, i) => arr.set(this._corNo(n), i * 3)); }
   emTransicao() { return !!this.trans; }
   _coresSin(arr) { const S = tema.d3().sinapse; this.g.sinapses.forEach((s, k) => { const c = S[s.tipo] || S.TAG; arr.set(c, k * 6); arr.set(c, k * 6 + 3); }); }
