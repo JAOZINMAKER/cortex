@@ -238,7 +238,8 @@ async function serializar(G) {
   return { pacote, gz, bruto: json.length, ms: Date.now() - t0 };
 }
 
-let partesPublicadas = new Map(); // arquivo -> entrada do manifesto já escrita
+let partesPublicadas = new Map();
+let timerConvergir = null; // arquivo -> entrada do manifesto já escrita
 
 // publica na pasta de sync (se ligada), só as partes que mudaram. forcar: reescreve todas
 async function publicar({ forcar = false, motivo = '' } = {}) {
@@ -540,7 +541,8 @@ function estado() {
     if (G) maquinas[0].projetos = [...new Set(G.interno.nos.filter((n) => n._origemLocal && n.tipo !== 'dia').map((n) => G.interno.nomeProj.get(n.projeto) || n.projeto))].sort();
   }
   return { ativo: !!c.ativo, pasta: c.pasta, maquina: { id: eu.id, nome: eu.nome }, compartilhar: c.compartilhar, intervaloMin: c.intervaloMin,
-    ultimaPublicacao, ...(erro ? { erro } : {}), sugestoes: sugestoes(), maquinas };
+    ultimaPublicacao, ...(erro ? { erro } : {}), sugestoes: sugestoes(), maquinas,
+    diagnostico: { pastaOneDrive: pastaOneDrive(), outrasMaquinasNaPasta: cfg().pasta ? outrasMaquinasEm(cfg().pasta) : 0, contaOneDrive: process.env.OneDrive || null } };
 }
 
 function avisar() { if (ctx && ctx.broadcast) ctx.broadcast({ tipo: 'sync', ...estado() }); }
@@ -683,17 +685,53 @@ function aplicarSyncAuto() {
   ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `SINCRONIZAÇÃO LIGADA PELO INSTALADOR → ${auto.pasta}` });
 }
 
+// Quantas OUTRAS máquinas publicaram numa pasta de sync (olha só os manifestos, não lê pacotes)
+function outrasMaquinasEm(pasta) {
+  try {
+    const dir = path.join(pasta, 'CORTEX-SYNC', 'maquinas');
+    return fs.readdirSync(dir).filter((id) => id !== maquina().id && fs.existsSync(path.join(dir, id, 'manifesto.json'))).length;
+  } catch { return 0; }
+}
+
+// Convergência: todos os PCs devem acabar na mesma pasta sem o usuário saber qual é.
+// Se este PC está sozinho na pasta atual e o OneDrive\CORTEX é outro lugar, muda para lá
+// (a escolha manual só é mantida quando ela de fato junta este PC com outro).
+function convergir() {
+  const c = config.get();
+  const s = c.sync || {};
+  if (s.ativo === false && s.pasta) return null; // desligado de propósito
+  const od = pastaOneDrive();
+  if (!od) return null;
+  const atual = s.pasta ? path.resolve(s.pasta) : null;
+  if (atual && atual.toLowerCase() === path.resolve(od).toLowerCase()) return null;
+  if (atual && outrasMaquinasEm(atual) > 0) return null; // a pasta escolhida já junta PCs: respeita
+  try { fs.mkdirSync(od, { recursive: true }); } catch { return null; }
+  c.sync = { ...PADRAO, ...s, ativo: true, pasta: od };
+  config.salvar();
+  partesPublicadas = new Map();
+  ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `SYNC: ${atual ? 'SOZINHO EM ' + atual + ' · ' : ''}MUDANDO PARA ${od} (MESMA PASTA EM TODOS OS PCs)` });
+  return od;
+}
+
 async function iniciar(c) {
   ctx = c;
   maq = null; remotos.clear(); ultimaPublicacao = null; erro = null; partesPublicadas = new Map();
   maquina();
   aplicarSyncAuto();
+  convergir();
+  // de 5 em 5 min: se outro PC aparecer no OneDrive enquanto este está sozinho noutra pasta, junta
+  clearInterval(timerConvergir);
+  timerConvergir = setInterval(async () => {
+    try { if (convergir()) { vigiar(); remotos.forEach((r, id) => { if (r.origem === 'pasta') remotos.delete(id); }); await lerRemotos(); ctx.aoMudarRemotos('sincronização: pasta do OneDrive'); await publicar({ forcar: true, motivo: 'pasta do OneDrive' }); } } catch { /* tenta de novo depois */ }
+  }, 5 * 60000);
+  if (timerConvergir.unref) timerConvergir.unref();
   vigiar();
   await lerRemotos();
 }
 
 // ao fechar: publica uma última vez e para de vigiar
 async function parar() {
+  clearInterval(timerConvergir); timerConvergir = null;
   clearTimeout(timerPub); timerPub = null;
   clearTimeout(timerRetry); timerRetry = null;
   pararVigia();
