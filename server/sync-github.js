@@ -128,7 +128,10 @@ async function preparar(cfg) {
         if (dono.toLowerCase() !== String(segredo.usuario).toLowerCase()) throw new Error(`o repositório ${repo} não existe e só crio na sua conta (${segredo.usuario})`);
         const c = await api('POST', '/user/repos', { name: nome, private: true, description: 'Dados do CÓRTEX (sincronização entre PCs)', auto_init: false });
         if (c.status === 401 || c.status === 403) { definirEstado('PRECISA_ENTRAR', 'sem permissão para criar o repositório privado (o token precisa do escopo "repo")'); return st.estado; }
-        if (c.status !== 201) throw new Error(`não consegui criar ${repo} (GitHub respondeu ${c.status}${c.json && c.json.message ? ': ' + c.json.message : ''})`);
+        if (c.status === 422) { // outro PC criou ao mesmo tempo: confere que existe e é privado
+          const g2 = await api('GET', `/repos/${repo}`);
+          if (g2.status !== 200 || !g2.json.private) throw new Error(`o repositório ${repo} já existe mas não é privado ou não está acessível`);
+        } else if (c.status !== 201) throw new Error(`não consegui criar ${repo} (GitHub respondeu ${c.status}${c.json && c.json.message ? ': ' + c.json.message : ''})`);
         st.privado = true;
       } else if (g.status === 200) {
         st.privado = !!g.json.private;
