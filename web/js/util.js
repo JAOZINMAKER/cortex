@@ -9,7 +9,8 @@ export const fmtData = t => { if (!t) return '—'; const d = new Date(t); retur
 export const fmtDataHora = t => { if (!t) return '—'; const d = new Date(t); return `${fmtData(t)} ${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 export const fmtMs = t => { const d = new Date(t); return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
 export const fmtRel = t => { if (!t) return '—'; const s = (Date.now() - t) / 1000; if (s < 0) return 'AGORA'; if (s < 60) return Math.round(s) + 'S'; if (s < 3600) return Math.round(s / 60) + 'MIN'; if (s < 86400) return Math.round(s / 3600) + 'H'; if (s < 86400 * 60) return Math.round(s / 86400) + 'D'; if (s < 86400 * 730) return Math.round(s / 86400 / 30) + 'MÊS'; return (s / 86400 / 365).toFixed(1).replace('.', ',') + 'A'; };
-export const FONTE_ROT = { obsidian: 'OBS', git: 'GIT', claude: 'IA', pasta: 'PST', sistema: 'SYS' };
+export const FONTE_ROT = { obsidian: 'OBS', git: 'GIT', claude: 'IA', pasta: 'PST', sistema: 'SYS', diario: 'DIÁRIO' };
+export const rotFonte = n => n.diario ? 'DIÁRIO' : (FONTE_ROT[n.fonte] || String(n.fonte || '').toUpperCase());
 export const TIPO_ROT = { nota: 'NOTA', commit: 'COMMIT', branch: 'BRANCH', worktree: 'WTREE', sessao: 'SESSÃO', arquivo: 'ARQ', doc: 'DOC', dia: 'DIA' };
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export function spark(vals, w = 56, h = 12) {

@@ -2,24 +2,24 @@
 import * as tema from './tema.js';
 const U = () => tema.ui();
 import { marked } from 'marked';
-import { $, el, esc, fmtN, fmtK, fmtData, fmtDataHora, fmtMs, fmtRel, FONTE_ROT, TIPO_ROT } from './util.js';
+import { $, el, esc, fmtN, fmtK, fmtData, fmtDataHora, fmtMs, fmtRel, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
 
 // ====================================================================== neurônio
 export class PainelNo {
   constructor(app) { this.app = app; this.e = $('#painel-no'); this.aba = 'conteudo'; }
   async abrir(i) {
     const app = this.app, g = app.g, n = g.nos[i]; this.i = i; this.n = n; this.d = null;
-    this.e.hidden = false; document.body.classList.add('painel-aberto'); app.cerebro.setOffset(Math.max(0, innerWidth / 2 - (312 + innerWidth - 560) / 2));
+    this.e.hidden = false; document.body.classList.add('painel-aberto'); const L = app.cerebro.area ? app.cerebro.area.l : 312; app.cerebro.setOffset(Math.max(0, innerWidth / 2 - (L + innerWidth - 560) / 2));
     this._render();
     try { const r = await fetch('/api/no/' + encodeURIComponent(n.id)); if (r.ok) { const d = await r.json(); if (this.n === n) { this.d = d; this._render(); app.rotulos.setDetalhe(d); } } } catch {}
   }
   fechar() { this.e.hidden = true; this.n = null; document.body.classList.remove('painel-aberto'); this.app.cerebro.setOffset(0); }
   _render() {
     const n = this.n, d = this.d; if (!n) return;
-    const meta = [['TIPO', TIPO_ROT[n.tipo] || n.tipo], ['FONTE', (n.fonte || '').toUpperCase()], ['AUTOR', n.autor], ['GRAU', n.grau], ['CRIADO', fmtDataHora(n.criado)], ['MODIFICADO', fmtDataHora(n.modificado)], [n.tipo === 'commit' ? 'LINHAS' : 'PALAVRAS', fmtN(n.palavras)], ['CLUSTER', 'CL-' + n.cluster],
+    const meta = [['TIPO', TIPO_ROT[n.tipo] || n.tipo], ['FONTE', n.diario ? 'DIÁRIO DAS SESSÕES' : (n.fonte || '').toUpperCase()], [n.diario ? 'AUTOR DA SESSÃO' : 'AUTOR', n.autor], ['GRAU', n.grau], ['CRIADO', fmtDataHora(n.criado)], ['MODIFICADO', fmtDataHora(n.modificado)], [n.tipo === 'commit' ? 'LINHAS' : 'PALAVRAS', fmtN(n.palavras)], ['CLUSTER', 'CL-' + n.cluster],
       ['HASH', n.hash], ['REGIÃO', n.regiao], ['SUBREGIÃO', n.subregiao || '—'], ['POS', n.pos.map(v => v.toFixed(0)).join(' ')]];
     const abas = [['conteudo', 'ORIGINAL'], ['maquina', 'MÁQUINA'], ['links', `LINKS ${d ? d.entrada.length + d.saida.length : ''}`], ['vizinhos', 'VIZINHOS'], ['historico', 'HISTÓRICO']];
-    this.e.innerHTML = `<div class="pn-cab"><div class="pn-id">${n.idCurto.toUpperCase()}<span>${TIPO_ROT[n.tipo] || ''} · ${FONTE_ROT[n.fonte] || ''} · ${esc(n.id)}</span></div><div class="pn-tit">${esc(n.titulo)}</div><button class="pn-fechar btn-mini">ESC FECHAR</button></div>
+    this.e.innerHTML = `<div class="pn-cab"><div class="pn-id">${n.idCurto.toUpperCase()}<span>${TIPO_ROT[n.tipo] || ''} · ${rotFonte(n)} · ${esc(n.id)}</span></div><div class="pn-tit">${esc(n.titulo)}${n.diario ? '<span class="tag-diario">DIÁRIO</span>' : ''}</div><button class="pn-fechar btn-mini">ESC FECHAR</button></div>
       <div class="pn-meta">${meta.map(([k, v]) => `<div><div class="k">${k}</div><div class="v" title="${esc(v)}">${esc(v)}</div></div>`).join('')}<div class="larg"><div class="k">CAMINHO</div><div class="v" title="${esc(n.caminho || '')}">${esc(n.caminho || '—')}</div></div></div>
       <div class="pn-abas">${abas.map(([k, t]) => `<button data-aba="${k}" class="${this.aba === k ? 'on' : ''}">${t}</button>`).join('')}</div>
       <div class="pn-corpo">${this._corpo()}</div>`;
@@ -129,13 +129,19 @@ export class Comando {
     const a = this.app; const s = a.sobre;
     return [['conectar', 'CONECTAR FONTE', 'ABRIR TELA DE CONEXÃO', () => a.conectar.abrir()], ['reconstruir', 'RECONSTRUIR CÉREBRO', 'POST /api/reconstruir', () => a.reconstruir()], ['replay', 'REPLAY DO CRESCIMENTO', 'DO PRIMEIRO REGISTRO ATÉ AGORA', () => a.replay.iniciar()], ['maquina', 'PAINEL DA MÁQUINA', 'TECLA M', () => a.maquina.alternar(true)],
       ['enquadrar', 'ENQUADRAR CÉREBRO INTEIRO', 'TECLA 0', () => a.cerebro.enquadrar()],
-      ['tema', 'TEMA: CICLAR (' + tema.atual().nome + ' → PRÓXIMO)', 'TECLA T', () => tema.ciclar()], ...tema.NOMES.map(n => ['tema ' + n, 'TEMA: ' + tema.TEMAS[n].nome + (tema.nome() === n ? ' (ATUAL)' : ''), tema.TEMAS[n].desc.toUpperCase(), () => tema.aplicar(n)]), ['som', 'SOM DE MÁQUINA: ' + (a.som.ligado ? 'DESLIGAR' : 'LIGAR'), 'TECLA S', () => a.alternarSom()],
+      ['tema', 'TEMA: CICLAR (' + tema.atual().nome + ' → PRÓXIMO)', 'TECLA T', () => a.ajustes.set('tema', tema.NOMES[(tema.NOMES.indexOf(tema.nome()) + 1) % tema.NOMES.length])], ...tema.NOMES.map(n => ['tema ' + n, 'TEMA: ' + tema.TEMAS[n].nome + (tema.nome() === n ? ' (ATUAL)' : ''), tema.TEMAS[n].desc.toUpperCase(), () => a.ajustes.set('tema', n)]),
+      ['visao painel', 'VISÃO: ABRIR FILTROS', 'TECLA V', () => a.visoes.alternar(true)], ['tudo visao', 'VISÃO: TUDO (VOLTAR)', 'ESC', () => a.visoes.aplicar({ id: 'tudo', nome: 'TUDO' })],
+      ...a.visoes.salvas.filter(v => v.id !== 'tudo').map(v => ['visao ' + v.id + ' ' + v.nome.toLowerCase(), 'VISÃO SALVA: ' + v.nome + (a.visoes.atual.id === v.id ? ' (ATUAL)' : ''), 'APLICAR', () => a.visoes.aplicar(v)]),
+      ...a.visoes.projetos.map(p => ['projeto ' + String(p.nome).toLowerCase(), 'ISOLAR PROJETO ' + String(p.nome).toUpperCase(), fmtN(p.neuronios) + ' NEURÔNIOS', () => a.visoes.isolarProjeto(p.nome)]),
+      ['ajustes', 'AJUSTES DA INTERFACE', 'TECLA A', () => a.ajustes.alternar(true)],
+      ...[['log', 'LOG'], ['status', 'STATUS'], ['contadores', 'CONTADORES'], ['minimapa', 'MINIMAPA'], ['linhaTempo', 'LINHA DO TEMPO']].map(([k, t]) => [(a.ajustes.a.paineis[k] ? 'esconder ' : 'mostrar ') + t.toLowerCase(), (a.ajustes.a.paineis[k] ? 'ESCONDER ' : 'MOSTRAR ') + t, 'PAINEL DO HUD', () => a.ajustes.alternarPainel(k)]),
+      ...[['mostrarSinapses', 'SINAPSES'], ['mostrarTecido', 'TECIDO'], ['mostrarGrade', 'GRADE'], ['rotacaoAuto', 'ROTAÇÃO AUTOMÁTICA']].map(([k, t]) => [(a.ajustes.a[k] ? 'esconder desligar ' : 'mostrar ligar ') + t.toLowerCase(), (a.ajustes.a[k] ? (k === 'rotacaoAuto' ? 'DESLIGAR ' : 'ESCONDER ') : (k === 'rotacaoAuto' ? 'LIGAR ' : 'MOSTRAR ')) + t, 'AJUSTE', () => a.ajustes.set(k, !a.ajustes.a[k])]), ['som', 'SOM DE MÁQUINA: ' + (a.som.ligado ? 'DESLIGAR' : 'LIGAR'), 'TECLA S', () => a.alternarSom()],
       ...s.map(o => [o.id, `SOBREPOSIÇÃO: ${o.nome} ${a.modo === o.id ? '(DESLIGAR)' : ''}`, `TECLA ${o.tecla}`, () => a.alternarModo(o.id)]),
       ...a.g.regioes.map(r => ['r:' + r.id, `IR PARA REGIÃO ${r.nome}`, `${r.serial} · ${fmtN(r.neuronios)} NEURÔNIOS`, () => { a.desfocar(); a.cerebro.voarRegiao(r); }])];
   }
   async buscar() {
     const q = this.inp.value.trim(); const ql = q.toLowerCase(); const seq = ++this.seq; const g = this.app.g;
-    const acoes = this.acoes().filter(x => !q || x[1].toLowerCase().includes(ql.replace(/^>/, '')) || x[0].includes(ql)).slice(0, q.startsWith('>') ? 30 : q ? 6 : 8).map(x => ({ acao: x }));
+    const acoes = this.acoes().filter(x => !q || x[1].toLowerCase().includes(ql.replace(/^>/, '')) || x[0].includes(ql)).slice(0, q.startsWith('>') ? 60 : q ? 8 : 8).map(x => ({ acao: x }));
     let locais = [];
     if (q && !q.startsWith('>')) { for (let i = 0; i < g.nos.length && locais.length < 40; i++) { const n = g.nos[i]; if (n.titulo.toLowerCase().includes(ql) || n.idCurto.startsWith(ql) || n.hash.startsWith(ql)) locais.push({ id: n.id, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte, regiao: n.regiao, trecho: n.caminho || '' }); } }
     this.itens = [...locais.map(x => ({ no: x })), ...acoes]; this.sel = 0; this._render(q, 'LOCAL');
@@ -151,7 +157,7 @@ export class Comando {
     this.itens.forEach((it, k) => {
       const gr = it.acao ? 'AÇÕES' : it.srv ? 'BUSCA NO CONTEÚDO // SERVIDOR' : 'NEURÔNIOS // TÍTULO'; if (gr !== grupo) { html += `<div class="cmd-grupo">${gr}</div>`; grupo = gr; }
       if (it.acao) html += `<div class="cr acao${k === this.sel ? ' sel' : ''}" data-k="${k}"><span class="tp">AÇÃO</span><span class="id">&gt;_</span><span class="tt">${hl(it.acao[1])}</span><span class="rg2">${esc(it.acao[2])}</span></div>`;
-      else { const n = it.no; const no = g.nos[this.app.cerebro.ids.get(n.id)]; html += `<div class="cr${k === this.sel ? ' sel' : ''}" data-k="${k}"><span class="tp">${TIPO_ROT[n.tipo] || n.tipo} · ${FONTE_ROT[n.fonte] || ''}</span><span class="id">${no ? no.idCurto : '—'}</span><span class="tt">${hl(n.titulo)}<small>${esc((n.trecho || '').slice(0, 110))}</small></span><span class="rg2">${esc(n.regiao)}${no ? ' · G' + no.grau : ''}</span></div>`; }
+      else { const n = it.no; const no = g.nos[this.app.cerebro.ids.get(n.id)]; html += `<div class="cr${k === this.sel ? ' sel' : ''}" data-k="${k}"><span class="tp">${TIPO_ROT[n.tipo] || n.tipo} · ${rotFonte(n)}</span><span class="id">${no ? no.idCurto : '—'}</span><span class="tt">${hl(n.titulo)}<small>${esc((n.trecho || '').slice(0, 110))}</small></span><span class="rg2">${esc(n.regiao)}${no ? ' · G' + no.grau : ''}</span></div>`; }
     });
     this.res.innerHTML = html || `<div class="cr"><span class="tp">—</span><span class="id">∅</span><span class="tt apagado">NENHUM REGISTRO PARA "${esc(q)}"</span><span></span></div>`;
     this.res.querySelectorAll('[data-k]').forEach(d => { d.onmousemove = () => { if (this.sel !== +d.dataset.k) { this.sel = +d.dataset.k; this._marcar(); } }; d.onclick = () => this.executar(this.itens[+d.dataset.k]); });

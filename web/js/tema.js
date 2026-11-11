@@ -46,7 +46,7 @@ function clustersDe(T) {
 
 // ---------------------------------------------------------------- 3D derivado
 function derivar3d(T) {
-  const u = T.ui, d = T.d3; const fundo = rgb(u.fundo), tx = rgb(u.texto), ac = rgb(u.acento), cz = rgb(u.cinza);
+  const u = T.ui, d = { ...T.d3, ...sobreFonte }; const fundo = rgb(u.fundo), tx = rgb(u.texto), ac = rgb(u.acento), cz = rgb(u.cinza);
   const git = rgb(d.git);
   return {
     fundo,
@@ -61,6 +61,7 @@ function derivar3d(T) {
 }
 
 // ---------------------------------------------------------------- estado
+let sobreFonte = {}; // cores por fonte escolhidas nos AJUSTES, sobrepondo o tema
 let nomeAtual = PADRAO; let T = TEMAS[PADRAO]; let D3 = derivar3d(T); const ouvintes = new Set();
 export const atual = () => T;
 export const nome = () => nomeAtual;
@@ -74,7 +75,7 @@ function aplicarCss() {
   // variações translúcidas usadas pelo CSS
   r.setProperty('--fundo-90', rgba(u.fundo, 0.9)); r.setProperty('--fundo-80', rgba(u.fundo, 0.8)); r.setProperty('--fundo-60', rgba(u.fundo, 0.6)); r.setProperty('--fundo-40', rgba(u.fundo, 0.4));
   r.setProperty('--acento-15', rgba(u.acento, 0.15)); r.setProperty('--maquina-30', rgba(u.maquina, 0.3)); r.setProperty('--texto-03', rgba(u.texto, 0.025));
-  r.setProperty('--d3-obsidian', T.d3.obsidian); r.setProperty('--d3-git', T.d3.git); r.setProperty('--d3-claude', T.d3.claude); r.setProperty('--d3-pasta', T.d3.pasta); r.setProperty('--d3-dia', T.d3.dia);
+  const d = { ...T.d3, ...sobreFonte }; for (const k of ['obsidian', 'git', 'claude', 'pasta', 'dia']) r.setProperty('--d3-' + k, d[k]);
   document.documentElement.dataset.tema = nomeAtual;
   const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = u.fundo;
 }
@@ -84,6 +85,8 @@ export function aplicar(n, lembrar = true) {
   for (const f of ouvintes) { try { f(T, n); } catch (e) { console.warn('tema', e); } }
   return n;
 }
+export function coresFonte(c) { sobreFonte = {}; for (const k in c || {}) if (/^#[0-9a-f]{6}$/i.test(c[k] || '')) sobreFonte[k] = c[k]; return aplicar(nomeAtual, false); }
+export const corFonte = k => ({ ...T.d3, ...sobreFonte })[k];
 export function ciclar() { return aplicar(NOMES[(NOMES.indexOf(nomeAtual) + 1) % NOMES.length]); }
 export function iniciar() {
   let n = null; try { n = new URLSearchParams(location.search).get('tema'); } catch {}

@@ -1,8 +1,8 @@
 // Rótulos densos por nível de zoom: regiões, neurônios, sinapses e anel de metadados.
-import { esc, fmtData, fmtDataHora, fmtN, fmtRel, spark, FONTE_ROT, TIPO_ROT } from './util.js';
+import { esc, fmtData, fmtDataHora, fmtN, fmtRel, spark, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
 
 const NS = 'http://www.w3.org/2000/svg';
-const MAX_NR = 180, MAX_SL = 44;
+const MAX_NR = 400, MAX_SL = 80;
 
 export class Rotulos {
   constructor(cerebro, raiz, svg) {
@@ -10,15 +10,16 @@ export class Rotulos {
     this.rg = new Map(); this.nr = []; this.sl = []; this.atual = new Int32Array(MAX_NR).fill(-1);
     for (let i = 0; i < MAX_NR; i++) { const e = document.createElement('div'); e.className = 'nr'; e.style.display = 'none'; raiz.appendChild(e); this.nr.push(e); }
     for (let i = 0; i < MAX_SL; i++) { const e = document.createElement('div'); e.className = 'sl'; e.style.display = 'none'; raiz.appendChild(e); this.sl.push(e); }
-    this.quadros = 0; this.nivel = 'CÉREBRO'; this.areaSegura = { l: 320, r: 300, t: 100, b: 66 };
+    this.quadros = 0; this.nivel = 'CÉREBRO'; this.orcamento = 180; this.densidade = 'normal'; this.onIsolar = null;
     this.detalhe = null; this.anelId = null;
   }
   setGrafo(g) {
-    for (const [, e] of this.rg) e.remove(); this.rg.clear();
+    for (const [, o] of this.rg) o.e.remove(); this.rg.clear();
     for (const r of g.regioes) {
       const e = document.createElement('div'); e.className = 'rg';
       e.innerHTML = `<div class="mira"></div><div class="haste"></div><div class="cx"><div class="nm"></div><div class="ln"></div></div>`;
       this.raiz.prepend(e); this.rg.set(r.id, { e, r, nm: e.querySelector('.nm'), ln: e.querySelector('.ln'), chave: '' });
+      const cx = e.querySelector('.cx'); cx.title = 'CLIQUE DUPLO: ISOLAR ' + r.nome; cx.ondblclick = ev => { ev.stopPropagation(); this.onIsolar && this.onIsolar(r); };
     }
     // subregiões: centros calculados aqui a partir das posições reais
     for (const e of this.subEls || []) e.e.remove(); this.subEls = [];
@@ -36,23 +37,25 @@ export class Rotulos {
   // ------------------------------------------------------------
   atualizar(forcar) {
     const c = this.c, g = c.g; if (!g) return; this.quadros++;
+    if (c.trans) { if (!this._escondido) { this.esconderTudo(); for (const e of this.nr) e.style.display = 'none'; for (const e of this.sl) e.style.display = 'none'; for (const o of this.subEls || []) o.e.style.display = 'none'; this.atual.fill(-1); this._escondido = true; } return; }
+    this._escondido = false;
     const mudou = c.mudouQuadro || forcar || this.quadros % 20 === 0; if (!mudou) { this._anelPos(); return; }
     if (!c.mudouQuadro) c.projetar();
-    const W = c.w, H = c.h, A = this.areaSegura; const d = c.dist(), d0 = c.distInicial || 2500;
+    const W = c.w, H = c.h, AR = c.area || { l: 312, r: 292, t: 92, b: 58 }; const A = { l: AR.l + 8, r: AR.r + 8, t: AR.t + 8, b: AR.b + 8 }; const d = c.dist(), d0 = c.distInicial || 2500;
     const z = d / d0; this.nivel = c.foco >= 0 && d < 700 ? 'NEURÔNIO' : z < 0.6 ? 'REGIÃO' : 'CÉREBRO';
     // grade de ocupação (células 6x6 px)
     const CW = 6, cols = Math.ceil(W / CW), rows = Math.ceil(H / CW); const occ = new Uint8Array(cols * rows);
     const livre = (x, y, w, h) => { const x0 = Math.max(0, (x / CW) | 0), y0 = Math.max(0, (y / CW) | 0), x1 = Math.min(cols - 1, ((x + w) / CW) | 0), y1 = Math.min(rows - 1, ((y + h) / CW) | 0); for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++) if (occ[yy * cols + xx]) return false; return true; };
     const marca = (x, y, w, h) => { const x0 = Math.max(0, (x / CW) | 0), y0 = Math.max(0, (y / CW) | 0), x1 = Math.min(cols - 1, ((x + w) / CW) | 0), y1 = Math.min(rows - 1, ((y + h) / CW) | 0); for (let yy = y0; yy <= y1; yy++) for (let xx = x0; xx <= x1; xx++) occ[yy * cols + xx] = 1; };
-    const pa = document.body.classList.contains('painel-aberto'); A.r = pa ? 566 : 300;
+    const pa = document.body.classList.contains('painel-aberto'); if (pa) A.r = 566; const DN = this.densidade, ORC = this.orcamento;
     marca(0, 0, A.l, H); marca(W - A.r, 0, A.r, H); marca(0, 0, W, A.t); marca(0, H - A.b - 4, W, A.b + 4);
-    marca(A.l, H - A.b - 52, 640, 52); marca(W - A.r - 400, H - A.b - 56, 400, 56);
+    marca(A.l, H - A.b - 44, 640, 44); marca(W - A.r - 400, H - A.b - 48, 400, 48); marca(W / 2 - 360, A.t - 8, 720, 34); // seletor de visão
     const dentro = (x, y) => x > A.l + 6 && x < W - A.r - 6 && y > A.t + 6 && y < H - A.b - 6;
     if (this.anelAtivo) { const p = this._focoXY(); if (p) { marca(p[0] - 210, p[1] - 165, 420, 385); marca(p[0] - 340, p[1] - 115, 680, 190); } }
     // regiões ------------------------------------------------
     this._vivas = null; if (c.tempo < 1e8) { this._vivas = new Set(); for (let i = 0; i < g.nos.length; i++) if (c.sz[i] >= 0) this._vivas.add(g.nos[i].regiao); }
     const regs = [...this.rg.values()].map(o => { const p = c.proj3(o.r.centro); return { o, p }; }).sort((a, b) => b.o.r.neuronios - a.o.r.neuronios);
-    let cheias = 0; const limiteCheias = this.nivel === 'CÉREBRO' ? 14 : 6;
+    let cheias = 0; const limiteCheias = DN === 'minima' ? 6 : this.nivel === 'CÉREBRO' ? (DN === 'maxima' ? 24 : 14) : 6;
     for (const { o, p } of regs) {
       if (!p || !dentro(p[0], p[1]) || (c.tempo < 1e8 && !this._regViva(o.r))) { o.e.style.display = 'none'; continue; }
       const cheio = cheias < limiteCheias && this.nivel !== 'NEURÔNIO';
@@ -76,24 +79,24 @@ export class Rotulos {
     const cw = this._medir(); let nsub = 0;
     for (const o of this.subEls || []) {
       const p = this.nivel === 'NEURÔNIO' ? null : c.proj3(o.centro);
-      if (!p || !dentro(p[0], p[1]) || nsub >= 60 || (c.tempo < 1e8 && (o.cri - c.t0) / 864e5 > c.tempo)) { if (o.e.style.display !== 'none') o.e.style.display = 'none'; continue; }
+      if (!p || !dentro(p[0], p[1]) || nsub >= (DN === 'minima' ? 0 : DN === 'maxima' ? 90 : 60) || (c.tempo < 1e8 && (o.cri - c.t0) / 864e5 > c.tempo)) { if (o.e.style.display !== 'none') o.e.style.display = 'none'; continue; }
       const w = 12 + o.e.textContent.length * cw * 1.05; if (!livre(p[0] - 3, p[1] - 7, w, 13)) { if (o.e.style.display !== 'none') o.e.style.display = 'none'; continue; }
       marca(p[0] - 3, p[1] - 7, w, 13); o.e.style.display = ''; o.e.style.transform = `translate3d(${p[0].toFixed(1)}px, ${p[1].toFixed(1)}px, 0)`; nsub++;
     }
     this.nSub = nsub;
     // neurônios ----------------------------------------------
     let usados = 0; const escolhidos = [];
-    if (this.nivel !== 'CÉREBRO') {
+    if (this.nivel !== 'CÉREBRO' || DN === 'maxima') {
       const N = g.nos.length, sx = c.sx, sy = c.sy, sz = c.sz; const cand = [];
       const vizF = new Map(); if (c.foco >= 0) for (const [v, k] of c.vizinhos(c.foco)) vizF.set(v, g.sinapses[k].peso || 0.1);
       const soViz = this.nivel === 'NEURÔNIO';
       for (let i = 0; i < N; i++) { const w = sz[i]; if (w < 0 || !dentro(sx[i], sy[i]) || i === c.foco) continue; const n = g.nos[i]; const vf = vizF.get(i); if (soViz && vf == null && (i % 5)) continue; cand.push([(Math.sqrt(n.grau || 0) + 1.5) / w + (vf != null ? 1e3 + vf * 100 : 0), i]); }
       cand.sort((a, b) => b[0] - a[0]);
-      const maxCheio = this.nivel === 'NEURÔNIO' ? 36 : 48, maxTotal = this.nivel === 'NEURÔNIO' ? 110 : MAX_NR; let cheios = 0;
+      const maxCheio = DN === 'minima' ? 10 : DN === 'maxima' ? 110 : this.nivel === 'NEURÔNIO' ? 36 : 48, maxTotal = Math.min(MAX_NR, this.nivel === 'NEURÔNIO' ? Math.min(ORC, 110) : this.nivel === 'CÉREBRO' ? Math.round(ORC * 0.4) : ORC); let cheios = 0;
       for (let k = 0; k < cand.length && usados < maxTotal; k++) {
         const i = cand[k][1]; const n = g.nos[i]; const x = sx[i], y = sy[i];
         if (!livre(x - 3, y - 3, 6, 6)) continue; // o próprio marcador precisa de espaço
-        const meta = `${fmtData(n.criado)} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'} · G${n.grau} · ${FONTE_ROT[n.fonte] || ''}`;
+        const meta = `${fmtData(n.criado)} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'} · G${n.grau} · ${rotFonte(n)}`;
         const tL = n.titulo.length > 42 ? n.titulo.slice(0, 41) + '…' : n.titulo, tC = n.titulo.length > 20 ? n.titulo.slice(0, 19) + '…' : n.titulo;
         const camadas = [cheios < maxCheio ? 0 : -1, 1, 2].filter(v => v >= 0); let nivel = -1, w = 0;
         for (const v of camadas) { const txt = v === 0 ? `${n.idCurto} ${tL} ${meta}` : v === 1 ? `${n.idCurto} ${tC}` : n.idCurto; w = Math.ceil(txt.length * cw + 8); if (livre(x - 3, y - 6, w + 6, 12)) { nivel = v; break; } }
@@ -101,7 +104,7 @@ export class Rotulos {
         const e = this.nr[usados]; const chave = i * 4 + nivel;
         if (this.atual[usados] !== chave) {
           this.atual[usados] = chave;
-          e.className = 'nr f-' + n.fonte + (nivel === 0 ? '' : nivel === 1 ? ' peq' : ' peq marc');
+          e.className = 'nr f-' + n.fonte + (n.diario ? ' diario f-claude' : '') + (nivel === 0 ? '' : nivel === 1 ? ' peq' : ' peq marc');
           e.innerHTML = nivel === 0 ? `<span class="c"><b>${n.idCurto}</b> ${esc(tL)} <i>${meta}</i></span>` : nivel === 1 ? `<span class="c"><b>${n.idCurto}</b> ${esc(tC)}</span>` : `<span class="c"><b>${n.idCurto}</b></span>`;
           e.firstChild.style.maxWidth = w + 'px';
         }
@@ -116,7 +119,8 @@ export class Rotulos {
       const set = new Set(escolhidos); const vistos = new Set(); const lista = [];
       for (const i of escolhidos.slice(0, 90)) for (const [v, k] of c.vizinhos(i)) { if (c.sz[v] < 0 || vistos.has(k) || !dentro(c.sx[v], c.sy[v])) continue; vistos.add(k); lista.push(k); }
       lista.sort((a, b) => (set.has(g.sinapses[b].a) && set.has(g.sinapses[b].b)) - (set.has(g.sinapses[a].a) && set.has(g.sinapses[a].b)));
-      for (const k of lista) { if (ns >= MAX_SL) break; const s = g.sinapses[k]; const x = (c.sx[s.a] + c.sx[s.b]) / 2, y = (c.sy[s.a] + c.sy[s.b]) / 2; const dx = c.sx[s.a] - c.sx[s.b], dy = c.sy[s.a] - c.sy[s.b]; if (dx * dx + dy * dy < 2500) continue; const txt = `${s.tipo} ${(s.peso ?? 0).toFixed(2)}`; const w = Math.ceil(txt.length * cw * 0.84 + 7); if (!livre(x - w / 2, y - 6, w, 12)) continue; marca(x - w / 2, y - 6, w, 12);
+      const maxSl = DN === 'minima' ? 0 : DN === 'maxima' ? MAX_SL : 44;
+      for (const k of lista) { if (ns >= maxSl) break; const s = g.sinapses[k]; const x = (c.sx[s.a] + c.sx[s.b]) / 2, y = (c.sy[s.a] + c.sy[s.b]) / 2; const dx = c.sx[s.a] - c.sx[s.b], dy = c.sy[s.a] - c.sy[s.b]; if (dx * dx + dy * dy < 2500) continue; const txt = `${s.tipo} ${(s.peso ?? 0).toFixed(2)}`; const w = Math.ceil(txt.length * cw * 0.84 + 7); if (!livre(x - w / 2, y - 6, w, 12)) continue; marca(x - w / 2, y - 6, w, 12);
         const e = this.sl[ns]; if (e.textContent !== txt) e.textContent = txt; e.style.display = ''; e.style.transform = `translate3d(${(x - w / 2).toFixed(1)}px, ${(y - 5).toFixed(1)}px, 0)`; ns++; }
     }
     for (let k = ns; k < MAX_SL; k++) this.sl[k].style.display = 'none';
@@ -145,7 +149,7 @@ export class Rotulos {
       ln.t.setAttribute('x', x + 6); ln.t.setAttribute('y', y + 12); ln.t.setAttribute('opacity', tapa ? 0 : 0.9); });
   }
   // área livre do canvas: entre log, status (ou painel aberto), topo e linha do tempo
-  _livre() { const W = this.c.w, H = this.c.h; const pa = document.body.classList.contains('painel-aberto'); return { l: 314, r: W - (pa ? 562 : 294), t: 94, b: H - 60 }; }
+  _livre() { const W = this.c.w, H = this.c.h; const A = this.c.area || { l: 312, r: 292, t: 92, b: 58 }; const pa = document.body.classList.contains('painel-aberto'); return { l: A.l + 2, r: W - (pa ? 562 : A.r + 2), t: A.t + 2, b: H - A.b - 2 }; }
   _anelMontar(n) {
     const svg = this.svg; svg.innerHTML = ''; this.anelAtivo = true; this.anelId = n.id + (this.detalhe ? 'd' : '');
     const d = this.detalhe && this.detalhe.no && this.detalhe.no.id === n.id ? this.detalhe : null;
@@ -170,7 +174,7 @@ export class Rotulos {
     // texto circular com hash/id
     const pid = 'arco' + n.idCurto; add('path', { id: pid, d: `M ${-(R - 8)} 0 A ${R - 8} ${R - 8} 0 1 1 ${R - 8} 0 A ${R - 8} ${R - 8} 0 1 1 ${-(R - 8)} 0`, fill: 'none' }, giro);
     const tx = add('text', { class: 'f-c', 'font-size': 7.5, 'letter-spacing': 1.5, 'font-family': 'Martian Mono Variable, monospace' }, giro);
-    const tp = add('textPath', { href: '#' + pid }, tx); tp.textContent = `ID ${n.id} · HASH ${n.hash} · ${TIPO_ROT[n.tipo] || n.tipo} · ${FONTE_ROT[n.fonte]} · G${n.grau} · CL${n.cluster} · `.repeat(2).toUpperCase().slice(0, 150);
+    const tp = add('textPath', { href: '#' + pid }, tx); tp.textContent = `ID ${n.id} · HASH ${n.hash} · ${TIPO_ROT[n.tipo] || n.tipo} · ${rotFonte(n)} · G${n.grau} · CL${n.cluster} · `.repeat(2).toUpperCase().slice(0, 150);
     // arcos de grau / palavras
     const arco = (r, f, cor, w) => { const a = Math.min(0.999, f) * Math.PI * 2; add('path', { d: `M 0 ${-r} A ${r} ${r} 0 ${a > Math.PI ? 1 : 0} 1 ${Math.sin(a) * r} ${-Math.cos(a) * r}`, fill: 'none', class: cor, 'stroke-width': w }); };
     arco(R - 22, Math.min(1, n.grau / 60), 's-v', 3); arco(R - 28, Math.min(1, Math.log10(1 + n.palavras) / 4.5), 's-m', 2);

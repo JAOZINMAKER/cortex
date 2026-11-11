@@ -50,12 +50,12 @@
     <div class="cab"><span>FONTES</span><button class="btn-mini" id="btn-conectar">+ CONECTAR</button></div>
     <div id="fontes-lista" class="fontes-lista"></div>
   </section>
-  <section class="bloco">
+  <section class="bloco" id="bloco-mini">
     <div class="cab"><span>MINIMAPA // XZ · ZY</span><span id="mini-zoom">—</span></div>
     <canvas id="mini" width="256" height="128"></canvas>
   </section>
   <section class="bloco acoes">
-    <button id="btn-maquina">[M] MÁQUINA</button><button id="btn-cmd">[CTRL+K] COMANDO</button><button id="btn-som">[S] SOM: OFF</button><button id="btn-tema">[T] TEMA</button>
+    <button id="btn-maquina">[M] MÁQUINA</button><button id="btn-cmd">[CTRL+K] COMANDO</button><button id="btn-som">[S] SOM: OFF</button><button id="btn-tema">[T] TEMA</button><button id="btn-visao">[V] VISÃO</button><button id="btn-ajustes">[A] AJUSTES</button>
   </section>
 </aside>
 
@@ -66,9 +66,15 @@
   <div class="rp-info" id="rp-info">—</div>
 </footer>
 
+<div id="visao-sel" class="visao-sel"><span class="vk">VISÃO</span><span class="vn">TUDO</span><span class="vd"></span><span class="vc"></span><button data-trocar>TROCAR [V]</button><button data-tudo hidden>TUDO [ESC]</button><button data-ajustes title="AJUSTES [A]">⚙</button></div>
 <div id="cam-info" class="cam-info"></div>
 <div id="nivel" class="nivel"></div>
 <div id="bench-selo" class="bench-selo" hidden>BENCH — DADOS SINTÉTICOS</div>
+
+<!-- Visão e ajustes -->
+<section id="painel-visao" class="painel-lat esq" hidden></section>
+<section id="painel-ajustes" class="painel-lat dir" hidden></section>
+<div id="aviso-grande" class="aviso-grande" hidden><div class="ag1"></div><div class="ag2"></div></div>
 
 <!-- Neurônio aberto -->
 <section id="painel-no" class="painel-no" hidden></section>

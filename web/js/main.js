@@ -7,7 +7,9 @@ import { Hud } from './hud.js';
 import { PainelNo, PainelMaquina, Comando, Conectar } from './panels.js';
 import { Som } from './sound.js';
 import { grafoBench } from './bench.js';
-import { $, el, esc, fmtN, fmtK, fmtData, fmtMs, fmtRel, clamp, FONTE_ROT, TIPO_ROT } from './util.js';
+import { Visoes, TUDO, vazia } from './visao.js';
+import { Ajustes } from './ajustes.js';
+import { $, el, esc, fmtN, fmtK, fmtData, fmtMs, fmtRel, clamp, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
 
 const DIA = 864e5;
 const params = new URLSearchParams(location.search);
@@ -52,13 +54,15 @@ class Replay {
 class App {
   constructor() {
     this.cerebro = new Cerebro($('#gl')); this.rotulos = new Rotulos(this.cerebro, $('#rotulos'), $('#anel')); this.hud = new Hud(this.cerebro);
-    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this);
+    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this);
     this.modo = null; this.carregando = true; this.ultEvento = 0; this.evts = []; this.ws = null;
     this.sobre = [{ id: 'calor', nome: 'CALOR DE ATIVIDADE', tecla: 1 }, { id: 'idade', nome: 'IDADE DAS NOTAS', tecla: 2 }, { id: 'cluster', nome: 'CLUSTERS POR TEMA', tecla: 3 }, { id: 'caminho', nome: 'CAMINHO MAIS CURTO', tecla: 4 }, { id: 'orfaos', nome: 'ÓRFÃOS SEM LIGAÇÃO', tecla: 5 }];
     this._sobreUI(); this._entrada();
     this.hud.onClicarLog = id => this.focarId(id);
+    this.rotulos.onIsolar = r => { if (r.hemisferio === 'TRONCO') return; if (vazia(this.visoes.atual)) this.visoes.isolarProjeto(r.projeto || r.id.replace(/^r_/, '')); else this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'VISÃO JÁ ISOLADA · ESC VOLTA PARA TUDO' }); };
+    $('#btn-visao').onclick = () => this.visoes.alternar(); $('#btn-ajustes').onclick = () => this.ajustes.alternar(); $('#visao-sel [data-ajustes]').onclick = () => this.ajustes.alternar();
     tema.aoTrocar((T, n) => { this.hud.miniBase = null; this.hud._rOk = false; this.replay.desenhar(); if (this.maquina.aberto) this.maquina._barras(); $('#btn-tema').textContent = '[T] TEMA: ' + T.nome; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'TEMA ' + T.nome + ' APLICADO' }); });
-    $('#btn-tema').textContent = '[T] TEMA: ' + tema.atual().nome; $('#btn-tema').onclick = () => tema.ciclar();
+    $('#btn-tema').textContent = '[T] TEMA: ' + tema.atual().nome; $('#btn-tema').onclick = () => this.ajustes.set('tema', tema.NOMES[(tema.NOMES.indexOf(tema.nome()) + 1) % tema.NOMES.length]);
     $('#btn-conectar').onclick = () => this.conectar.abrir(); $('#btn-maquina').onclick = () => this.maquina.alternar(); $('#btn-cmd').onclick = () => this.comando.abrir(); $('#btn-som').onclick = () => this.alternarSom();
     if (BENCH) $('#bench-selo').hidden = false;
     this.carregar().then(async () => { if (BENCH) return; try { const r = await fetch('/api/maquina'); if (r.ok) { const d = await r.json(); this.maquina.atualizar(d); for (const ev of (d.telemetria || []).slice(-160)) { this.hud.log({ ...ev, nivel: ev.nivel === 'INFO' || ev.nivel === 'ALERTA' || ev.nivel === 'PULSO' ? ev.nivel : 'HIST' }, false); this.maquina.evento(ev); } } } catch {} this.conectarWS(); });
@@ -66,17 +70,28 @@ class App {
   }
   async carregar() {
     this.carregando = true; this.hud.aviso('PROCESSANDO REGISTROS', false);
-    let g; if (BENCH) g = grafoBench(BENCH, +params.get('sin') || 3);
-    else { for (let k = 0; ; k++) { try { const r = await fetch('/api/graph'); if (r.ok) { g = await r.json(); break; } } catch {} this.hud.aviso('AGUARDANDO SERVIDOR · TENTATIVA ' + (k + 1), false); await new Promise(r => setTimeout(r, 1500)); } }
-    this.aplicarGrafo(g); this.carregando = false;
+    if (BENCH) { this.relayout(); this.aplicarGrafo(grafoBench(BENCH, +params.get('sin') || 3)); this.carregando = false; return; }
+    for (let k = 0; ; k++) { try { const r = await fetch('/api/fontes'); if (r.ok) break; } catch {} this.hud.aviso('AGUARDANDO SERVIDOR · TENTATIVA ' + (k + 1), false); await new Promise(r => setTimeout(r, 1500)); }
+    await this.ajustes.carregar(); await this.visoes.carregarListas();
+    const vi = this.ajustes.a.visaoInicial; const v0 = this.visoes.daUrl() || (vi && vi !== 'tudo' ? { id: vi, _soId: true } : TUDO);
+    for (let k = 0; k < 20 && !this.g; k++) { await this.visoes.aplicar(v0, { url: !!this.visoes.daUrl() }); if (!this.g) await new Promise(r => setTimeout(r, 1500)); }
+    this.carregando = false;
   }
-  aplicarGrafo(g) {
-    const ant = this.g; this.g = g; this._orf = null; this.cerebro.setGrafo(g); this.rotulos.setGrafo(g); this.hud.setGrafo(g); this.replay.setGrafo(g);
+  // área livre do canvas conforme os painéis visíveis
+  relayout() {
+    const B = document.body.classList; this.cerebro.area = { l: B.contains('sem-log') ? 0 : 312, r: B.contains('sem-direita') ? 0 : 292, t: 92, b: B.contains('sem-linhaTempo') ? 0 : 58 };
+    this.hud._rOk = false; this.cerebro.camMudou = true; if (this.g) this.replay.desenhar();
+  }
+  avisoGrande(t1, t2) { const a = $('#aviso-grande'); a.querySelector('.ag1').textContent = t1; a.querySelector('.ag2').textContent = t2 || ''; a.hidden = false; a.style.animation = 'none'; void a.offsetWidth; a.style.animation = ''; clearTimeout(this._agT); this._agT = setTimeout(() => a.hidden = true, 3000); }
+  aplicarGrafo(g, opt = {}) {
+    for (const n of g.nos) if (n.fonte === 'diario' || (!n.diario && /[\\/]diario[\\/]/i.test(n.caminho || '') && /cortex/i.test(n.caminho || ''))) n.diario = true;
+    const ant = this.g; this.g = g; this._orf = null; this.cerebro.setGrafo(g, opt); this.rotulos.setGrafo(g); this.hud.setGrafo(g); this.replay.setGrafo(g);
     this.porTitulo = new Map(); this.porCaminho = new Map();
     for (const n of g.nos) { const k = n.titulo.toLowerCase(); if (!this.porTitulo.has(k)) this.porTitulo.set(k, n.id); if (n.caminho) this.porCaminho.set(n.caminho.replace(/\\/g, '/').toLowerCase(), n.id); }
     this._fontesUI();
     const k = g.contadores; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: `${ant ? 'GRAFO ATUALIZADO' : 'GRAFO CARREGADO'} V${g.versao} · ${fmtN(k.neuronios)} NEURÔNIOS · ${fmtN(k.sinapses)} SINAPSES · ${g.regioes.length} REGIÕES` });
     if (this.cerebro.foco >= 0 && this.painel.n) this.painel.abrir(this.cerebro.foco);
+    this.visoes._seletor();
   }
   acharTitulo(t) { return this.porTitulo.get(String(t).trim().toLowerCase()) || null; }
   acharCaminho(p) { if (!p) return null; const s = String(p).replace(/\\/g, '/').toLowerCase(); if (this.porCaminho.has(s)) return this.porCaminho.get(s); for (const [k, v] of this.porCaminho) if (k.endsWith('/' + s) || s.endsWith(k)) return v; return null; }
@@ -95,8 +110,14 @@ class App {
       if (!hist) { this.ultEvento = performance.now(); this.som.clique(d.nivel); this.evts.push(performance.now()); }
     } else if (d.tipo === 'status') this.hud.status = d;
     else if (d.tipo === 'maquina') this.maquina.atualizar(d);
-    else if (d.tipo === 'grafo') { if (this.g && d.versao === this.g.versao) return; this.atualizando = true; try { const r = await fetch('/api/graph'); if (r.ok) this.aplicarGrafo(await r.json()); } catch {} this.atualizando = false; }
-    else if (d.tipo === 'ola') { if (this.g && d.versao !== this.g.versao) this.mensagem({ tipo: 'grafo', versao: d.versao }); }
+    else if (d.tipo === 'grafo') { if (this.g && d.versao === this.g.versao) return; this.atualizando = true; await this.visoes.recarregar(); this.atualizando = false; }
+    else if (d.tipo === 'visao') {
+      // logo após conectar o servidor reenvia a visão atual: só adota se a URL não pediu outra, e sem o aviso de sessão externa
+      const saudacao = performance.now() - (this._olaEm || 0) < 2000; const v = d.visao || TUDO;
+      if (saudacao) { if (!this.visoes.daUrl() && JSON.stringify(v) !== JSON.stringify(this.visoes.atual) && !(vazia(v) && vazia(this.visoes.atual))) this.visoes.aplicar(v); }
+      else this.visoes.aplicar(v, { externa: true });
+    }
+    else if (d.tipo === 'ola') { this._olaEm = performance.now(); if (this.g && d.versao !== this.g.versao) this.mensagem({ tipo: 'grafo', versao: d.versao }); }
   }
   // ---------------------------------------------------------------- foco
   focar(i, voar = true) {
@@ -118,7 +139,7 @@ class App {
     this.modo = this.modo === m ? null : m; this.cerebro.aplicarModo(this.modo, this.modo === 'caminho' ? this.caminhoInfo : null); this._sobreUI();
     if (this.modo === 'caminho') { this.origemCaminho = this.cerebro.foco >= 0 ? this.cerebro.foco : null; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'CAMINHO MAIS CURTO: CLIQUE NA ORIGEM, SHIFT+CLIQUE NO DESTINO' }); }
   }
-  alternarSom() { const l = this.som.alternar(); $('#btn-som').textContent = '[S] SOM: ' + (l ? 'ON' : 'OFF'); }
+  alternarSom() { this.ajustes.set('som', !this.ajustes.a.som); }
   async reconstruir() { this.hud.log({ t: Date.now(), nivel: 'ALERTA', fonte: 'sistema', msg: 'RECONSTRUÇÃO SOLICITADA' }); this.atualizando = true; try { await fetch('/api/reconstruir', { method: 'POST' }); } catch {} setTimeout(() => this.atualizando = false, 3000); }
   _sobreUI() {
     const box = $('#sobre'); const g = this.g;
@@ -143,17 +164,17 @@ class App {
     addEventListener('keydown', ev => {
       const alvo = ev.target; const digitando = alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'SELECT' || alvo.tagName === 'TEXTAREA');
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); this.comando.aberto ? this.comando.fechar() : this.comando.abrir(); return; }
-      if (ev.key === 'Escape') { if (this.comando.aberto) this.comando.fechar(); else if (this.conectar.aberto) this.conectar.fechar(); else if (this.maquina.aberto) this.maquina.alternar(false); else if (this.cerebro.foco >= 0) this.desfocar(); else if (this.modo) this.alternarModo(this.modo); return; }
+      if (ev.key === 'Escape') { if (this.comando.aberto) this.comando.fechar(); else if (this.visoes.aberto) this.visoes.alternar(false); else if (this.ajustes.aberto) this.ajustes.alternar(false); else if (this.conectar.aberto) this.conectar.fechar(); else if (this.maquina.aberto) this.maquina.alternar(false); else if (this.cerebro.foco >= 0) this.desfocar(); else if (this.modo) this.alternarModo(this.modo); else if (!vazia(this.visoes.atual)) this.visoes.aplicar(TUDO); return; }
       if (digitando) return;
       const k = ev.key.toLowerCase();
       if (k === 'm') this.maquina.alternar(); else if (k === 's') this.alternarSom(); else if (k === '0') this.cerebro.enquadrar(); else if (k === ' ') { ev.preventDefault(); this.replay.tocando ? this.replay.pausar() : this.replay.iniciar(); }
-      else if (k >= '1' && k <= '5') this.alternarModo(this.sobre[+k - 1].id); else if (k === 'c') this.conectar.abrir(); else if (k === 't') tema.ciclar();
+      else if (k >= '1' && k <= '5') this.alternarModo(this.sobre[+k - 1].id); else if (k === 'c') this.conectar.abrir(); else if (k === 't') this.ajustes.set('tema', tema.NOMES[(tema.NOMES.indexOf(tema.nome()) + 1) % tema.NOMES.length]); else if (k === 'v') this.visoes.alternar(); else if (k === 'a') this.ajustes.alternar();
     });
   }
   _dica() {
     const d = $('#dica'); if (!this.mouse || this.comando.aberto) { d.style.display = 'none'; return; }
     const i = this.cerebro.pegar(this.mouse[0], this.mouse[1], 10); if (i < 0) { d.style.display = 'none'; this.dicaI = -1; return; }
-    if (this.dicaI !== i) { const n = this.g.nos[i]; this.dicaI = i; d.innerHTML = `<div class="t">${n.idCurto} · ${esc(n.titulo.slice(0, 54))}</div><div class="x">${TIPO_ROT[n.tipo]} · ${FONTE_ROT[n.fonte]} · ${fmtData(n.criado)} · G${n.grau} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'}</div><div class="x">${esc(n.regiao)} · #${esc(n.hash)}</div>`; }
+    if (this.dicaI !== i) { const n = this.g.nos[i]; this.dicaI = i; d.innerHTML = `<div class="t">${n.idCurto} · ${esc(n.titulo.slice(0, 54))}</div><div class="x">${TIPO_ROT[n.tipo]} · ${rotFonte(n)} · ${fmtData(n.criado)} · G${n.grau} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'}</div><div class="x">${esc(n.regiao)} · #${esc(n.hash)}</div>`; }
     d.style.display = 'block'; d.style.left = (this.mouse[0] + 14) + 'px'; d.style.top = (this.mouse[1] + 14) + 'px';
   }
   // ---------------------------------------------------------------- laço
@@ -199,5 +220,8 @@ window.__cortex = {
   conectar: () => app.conectar.abrir(), fecharConectar: () => app.conectar.fechar(),
   enquadrar: () => { app.desfocar(); app.cerebro.enquadrar(false); }, modo: m => app.alternarModo(m),
   pararGiro: () => { app.cerebro.autoGiro = false; },
-  tema: n => tema.aplicar(n)
+  tema: n => app.ajustes.set('tema', n),
+  visao: v => app.visoes.aplicar(v), isolar: p => app.visoes.isolarProjeto(p), tudo: () => app.visoes.aplicar(TUDO),
+  abrirVisao: () => app.visoes.alternar(true), fecharVisao: () => app.visoes.alternar(false), abrirAjustes: () => app.ajustes.alternar(true), fecharAjustes: () => app.ajustes.alternar(false),
+  ajuste: (k, v) => app.ajustes.set(k, v), emTransicao: () => app.cerebro.emTransicao()
 };

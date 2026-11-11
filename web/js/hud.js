@@ -56,7 +56,7 @@ export class Hud {
     const cam = c.camera, t = c.controls.target; const dist = c.dist(); const vh = 2 * Math.tan(cam.fov * Math.PI / 360) * dist; const upp = vh / H; // unidades por pixel no plano do alvo
     ctx.font = '8px Martian Mono Variable, monospace'; ctx.fillStyle = U().apagado; ctx.strokeStyle = U().apagado; ctx.lineWidth = 1;
     const passo = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000].find(p => p / upp > 9) || 5000;
-    const x0 = 312, x1 = W - 292, y0 = 92, y1 = H - 58; const cx = W / 2 + (c.offset || 0) * -1, cy = H / 2;
+    const AR = c.area || { l: 312, r: 292, t: 92, b: 58 }; const x0 = AR.l, x1 = W - AR.r, y0 = AR.t, y1 = H - AR.b; const cx = W / 2 + (c.offset || 0) * -1, cy = H / 2;
     ctx.beginPath();
     for (let u = Math.ceil(((x0 - cx) * upp) / passo) * passo; (cx + u / upp) < x1; u += passo) { const x = Math.round(cx + u / upp) + 0.5; const big = Math.round(u / passo) % 5 === 0; ctx.moveTo(x, y0); ctx.lineTo(x, y0 + (big ? 9 : 4)); ctx.moveTo(x, y1); ctx.lineTo(x, y1 - (big ? 9 : 4)); if (big) { ctx.fillText(Math.round(u + t.x), x + 2, y0 + 17); ctx.fillText(Math.round(u + t.x), x + 2, y1 - 11); } }
     for (let v = Math.ceil(((y0 - cy) * upp) / passo) * passo; (cy + v / upp) < y1; v += passo) { const y = Math.round(cy + v / upp) + 0.5; const big = Math.round(v / passo) % 5 === 0; ctx.moveTo(x0, y); ctx.lineTo(x0 + (big ? 9 : 4), y); ctx.moveTo(x1, y); ctx.lineTo(x1 - (big ? 9 : 4), y); if (big) { ctx.fillText(Math.round(t.y - v), x0 + 12, y + 3); const s = String(Math.round(t.y - v)); ctx.fillText(s, x1 - 12 - ctx.measureText(s).width, y + 3); } }
