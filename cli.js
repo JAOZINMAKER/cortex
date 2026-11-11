@@ -541,7 +541,13 @@ C.executar = async (pos, op) => {
   if (proj) corpo.projeto = proj;
   if (op.gravar) corpo.gravar = true;
   if (op.dias !== undefined && op.dias !== true) corpo.dias = Number(op.dias);
-  for (const [k, v] of Object.entries(op)) if (!['projeto', 'gravar', 'dias', 'json'].includes(k)) corpo[k] = v;
+  // demais opções vão como estão, em camelCase (--ignorar-teste → ignorarTeste)
+  for (const [k, v] of Object.entries(op)) {
+    if (['projeto', 'gravar', 'dias', 'json'].includes(k)) continue;
+    corpo[k.replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = v;
+  }
+  // onde-parei usa a pasta atual para priorizar o worktree em que a sessão está
+  if (/^(cortex-)?onde-parei$/.test(nome) && !corpo.pasta) corpo.pasta = process.cwd();
   const r = await api('POST', '/api/skills/' + encodeURIComponent(nome) + '/executar', corpo);
   const j = r.json || {};
   if (MODO_JSON) return out(JSON.stringify(j));
@@ -583,7 +589,7 @@ const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
   cortex skills                       skills do Claude Code e se estão instaladas
   cortex skill instalar [nome|todas]  instala/atualiza skills (todas = também comando, PATH e CLAUDE.md)
   cortex skill remover <nome>
-  cortex executar <skill> --projeto X [--gravar] [--dias N]
+  cortex executar <skill> --projeto X [--gravar] [--dias N] [--ignorar-teste]
                                       roda no servidor, sem IA: cortex-contexto, cortex-onde-parei,
                                       cortex-revisao-semanal, cortex-ligacoes
 
