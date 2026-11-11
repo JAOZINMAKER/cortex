@@ -149,3 +149,67 @@ O **acento** é raro (alertas, pulsos, destaques); **maquina** marca o que é da
 
 ## Desempenho
 Meta: 20.000 neurônios e 60.000 sinapses a 60 fps. Neurônios desenhados num único `THREE.Points` com shader; sinapses num único `LineSegments`; pulsos num `Points` de buffer fixo. Rótulos em DOM limitados por orçamento (no máximo ~180 visíveis), escolhidos por proximidade da câmera e importância. `tools/bench.js` gera um grafo sintético **só para benchmark** (`?bench=20000`), nunca misturado com dados reais.
+
+## V3: personalização, visões e uso por outras sessões
+
+### Projeto certo para worktrees e clones
+O PC do usuário tem `glass-pets` e mais de 100 pastas `gp-*` (worktrees/clones das sessões). Tudo isso é **um projeto só**. Ordem para descobrir o projeto de um caminho (sessão do Claude ou fonte):
+1. `apelidos` na config: `{ "gp-*": "glass-pets" }` (glob simples em cima do basename; a config padrão já traz esse);
+2. se o caminho estiver dentro de um repo git: `git rev-parse --git-common-dir` → basename do repo principal (pega worktrees); se for clone separado, basename do `remote.origin.url` sem `.git`;
+3. basename do caminho.
+O resultado é cacheado por caminho. A subregião de uma sessão é o basename original (`gp-alce`), assim o lobo do glass-pets mostra seus worktrees como sub-setores.
+
+### Visões (filtros salvos)
+```ts
+Visao = {
+  id: string, nome: string,
+  projetos?: string[],        // vazio/ausente = todos
+  fontes?: ("obsidian"|"git"|"claude"|"pasta")[],
+  tipos?: No["tipo"][],
+  desde?: number, ate?: number,    // epoch ms
+  tags?: string[],                  // qualquer uma
+  grauMin?: number,
+  texto?: string,                   // filtro por título/caminho
+  vizinhos?: 0|1|2                  // inclui vizinhos de fora do filtro até N saltos (esmaecidos)
+}
+```
+- `GET /api/graph?visao=<id>` ou com os mesmos campos como query (`projetos=a,b&fontes=git&desde=...`) devolve o grafo filtrado **com layout refeito**: o(s) projeto(s) escolhido(s) ocupam o cérebro inteiro (subregiões viram os lobos). Os contadores e as regiões são do recorte. Campo extra na resposta: `visao: Visao|null`, `total: { neuronios, sinapses }` (do grafo completo). Nós de fora puxados por `vizinhos` vêm com `fora: true`.
+- `GET /api/visoes` · `POST /api/visoes` (cria/atualiza por id) · `DELETE /api/visoes/:id` → `data/visoes.json`. Visões padrão criadas no boot: "TUDO" e uma por projeto ("SÓ GLASS-PETS", ...).
+- `GET /api/visao/atual` · `POST /api/visao/atual` `{ id } | Visao` → muda a visão de **todas as janelas abertas** (WS `visao` → `{ visao }`). É assim que outra sessão "mostra" algo para o usuário.
+- `GET /api/projetos` → `{ projetos: { nome, neuronios, notas, commits, sessoes, ultimoPulso, subregioes: string[] }[] }`
+
+### Ajustes de interface (persistidos)
+`GET/POST /api/ajustes` → `data/ajustes.json`:
+```ts
+{ tema: string, brilho: number /*0.3..2*/, tamanhoPonto: number, orcamentoRotulos: number /*0..400*/,
+  densidadeRotulos: "minima"|"normal"|"maxima", mostrarSinapses: boolean, mostrarTecido: boolean,
+  mostrarGrade: boolean, rotacaoAuto: boolean, paineis: { log, status, contadores, minimapa, linhaTempo: boolean },
+  coresFonte?: { obsidian?, git?, claude?, pasta? },  // sobrepõe o tema
+  som: boolean, visaoInicial: string }
+```
+
+### Diário das sessões
+Outras sessões registram trabalho com `POST /api/registrar` `{ projeto, titulo, texto, tags?, autor?, ligar?: string[] /*ids ou títulos*/ }`. Isso grava um .md em `cortex/diario/<projeto>/AAAA-MM-DD-<slug>.md` com frontmatter (projeto, autor, tags, criado) e `[[links]]`. O `diario/` é uma fonte tipo `obsidian` interna, sempre ligada, com `projeto` = pasta. **Nunca escreve nos cofres do usuário.** Retorna `{ id, caminho }`.
+
+### Resumo para agentes
+`GET /api/resumo?projeto=<nome>&dias=7` → texto em markdown curto (máx. ~4 KB) para uma IA ler: contadores, últimos commits (msg, hash curto, data), últimas sessões (título, duração, ferramentas, arquivos), notas mais conectadas, notas mudadas no período, órfãos, entradas do diário. Sem projeto = visão geral de todos.
+
+### CLI (`cortex` no terminal, para humanos e outras sessões)
+`node <cortex>/cli.js <comando>`; o instalador cria `cortex.cmd` em `%USERPROFILE%\.cortex\bin` e põe no PATH do usuário. Se o servidor não estiver rodando, o CLI o liga em segundo plano (detached, sem janela) e espera até 30 s.
+```
+cortex status                         # rodando? porta, versão do grafo, contadores
+cortex abrir [projeto]                # abre o navegador, já na visão do projeto
+cortex projetos
+cortex resumo [projeto] [--dias N]
+cortex buscar "<texto>" [--projeto X] [--json]
+cortex no <id|titulo> [--json]
+cortex mostrar <projeto|visao> [--fontes git,claude] [--desde 7d]   # muda a visão nas janelas abertas
+cortex registrar --projeto X --titulo "..." --texto "..." [--tags a,b] [--ligar id1,id2]
+cortex conectar <obsidian|git|claude|pasta> "<caminho>" [--projeto X]
+cortex reconstruir
+cortex skill instalar                 # copia a skill para %USERPROFILE%\.claude\skills\cortex
+```
+Saída em português, curta, sem cor quando não for TTY; `--json` para máquinas.
+
+### Skill do Claude Code
+`skill/cortex/SKILL.md` (frontmatter `name: cortex`, `description` que dispara com "córtex", "cortex", "segundo cérebro", "registra no córtex", "mostra no córtex", "o que eu fiz em <projeto>"). O conteúdo ensina a sessão a: checar `cortex status`; ler contexto com `cortex resumo <projeto>` antes de trabalhar; buscar com `cortex buscar`; mostrar coisas para o usuário com `cortex mostrar`/`cortex abrir`; registrar o que fez com `cortex registrar` ao terminar uma tarefa importante; descobrir o projeto pela pasta atual (`cortex projetos`). Caminho real da instalação é preenchido pelo instalador (placeholder `{{CORTEX_DIR}}`). O `abrir-cortex.bat` e `cortex skill instalar` instalam/atualizam a skill e o CLI a cada execução (idempotente).
