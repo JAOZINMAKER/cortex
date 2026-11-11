@@ -1,0 +1,49 @@
+# CÓRTEX — empacotamento Windows (gerado no Linux, sem wine).
+# asar: false — o CLI e o instalar.js rodam com ELECTRON_RUN_AS_NODE e precisam ler server/, skills/ e web/
+# como arquivos comuns; o ganho do asar aqui seria pequeno.
+appId: local.cortex.app
+productName: CORTEX
+executableName: CORTEX
+copyright: CÓRTEX — segundo cérebro local
+electronVersion: 33.4.11
+asar: false
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+directories:
+  output: dist
+  buildResources: build
+files:
+  - package.json
+  - app/**
+  - server/**
+  - web/**
+  - skills/**
+  - skill/**
+  - cli.js
+  - instalar.js
+  - .env.exemplo
+  - "!**/*.map"
+  - "!**/{test,tests,__tests__}/**"
+  # three.js: só o módulo e os controles usados pela interface (o pacote inteiro tem ~30 MB)
+  - "!node_modules/three/src/**"
+  - "!node_modules/three/README.md"
+  - "!node_modules/three/build/!(three.module.js)"
+# o electron-builder sempre descarta pastas "examples" de node_modules; o OrbitControls vem por aqui
+extraResources:
+  - from: node_modules/three/examples/jsm/controls/OrbitControls.js
+    to: app/node_modules/three/examples/jsm/controls/OrbitControls.js
+extraFiles:
+  - from: "Instalar CORTEX.bat"
+    to: "Instalar CORTEX.bat"
+  - from: build/LEIA-ME.txt
+    to: LEIA-ME.txt
+  - from: build/icon.ico
+    to: CORTEX.ico
+win:
+  target:
+    - target: zip
+      arch: [x64]
+  icon: build/icon.ico
+  signAndEditExecutable: false
+artifactName: CORTEX-win-x64.${ext}
