@@ -60,6 +60,46 @@ function pontoEspinha(t, r01, ang) {
   return [Math.cos(ang) * rr, y, zc + Math.sin(ang) * rr];
 }
 
+// treemap "squarified" (Bruls et al.): itens {k, w} → Map k -> {x, y, w, h} cobrindo o retângulo todo
+function treemap(itens, x, y, w, h) {
+  const out = new Map();
+  const total = itens.reduce((a, b) => a + b.w, 0);
+  if (!itens.length || total <= 0) return out;
+  const esc = (w * h) / total;
+  const resto = itens.slice().sort((a, b) => b.w - a.w).map((i) => ({ k: i.k, a: i.w * esc }));
+  const pior = (linha, lado) => {
+    let s = 0, mx = 0, mn = Infinity;
+    for (const r of linha) { s += r.a; if (r.a > mx) mx = r.a; if (r.a < mn) mn = r.a; }
+    return Math.max((lado * lado * mx) / (s * s), (s * s) / (lado * lado * mn));
+  };
+  while (resto.length) {
+    const lado = Math.min(w, h);
+    let linha = [resto.shift()];
+    while (resto.length && pior(linha.concat(resto[0]), lado) <= pior(linha, lado)) linha.push(resto.shift());
+    const s = linha.reduce((a, b) => a + b.a, 0);
+    if (!resto.length) { // última faixa ocupa o que sobrou (sem fresta por arredondamento)
+      if (w >= h) { let yy = y; for (const r of linha) { const hh = h * (r.a / s); out.set(r.k, { x, y: yy, w, h: hh }); yy += hh; } }
+      else { let xx = x; for (const r of linha) { const ww = w * (r.a / s); out.set(r.k, { x: xx, y, w: ww, h }); xx += ww; } }
+      break;
+    }
+    if (w >= h) {
+      const cw = s / h; let yy = y;
+      for (const r of linha) { const hh = r.a / cw; out.set(r.k, { x, y: yy, w: cw, h: hh }); yy += hh; }
+      x += cw; w -= cw;
+    } else {
+      const rh = s / w; let xx = x;
+      for (const r of linha) { const ww = r.a / rh; out.set(r.k, { x: xx, y, w: ww, h: rh }); xx += ww; }
+      y += rh; h -= rh;
+    }
+  }
+  return out;
+}
+
+function encolher(R, d) {
+  const dx = Math.min(d, R.w * 0.2), dy = Math.min(d, R.h * 0.2);
+  return { x: R.x + dx, y: R.y + dy, w: R.w - 2 * dx, h: R.h - 2 * dy };
+}
+
 // global t∈[0,1): metade direita frente→trás, metade esquerda trás→frente
 function tParaHemi(t) {
   if (t < 0.5) return { s: 1, u: t / 0.5 };
@@ -69,7 +109,7 @@ function tParaHemi(t) {
 // nos: [{id, regiao, subregiao, tipo, criado}] — escreve n.pos
 // regioes: Map id -> {id, nome}
 // retorna Map regiaoId -> {centro, hemisferio}
-function calcular(nos, regioesIds) {
+function calcular(nos, regioesIds, opcoes = {}) {
   const cortex = new Map(); // regiao -> nós de córtex
   const cereb = new Map(); // regiao -> nós de arquivo
   const dias = [];
@@ -83,58 +123,58 @@ function calcular(nos, regioesIds) {
 
   // ordem: maiores primeiro (desempate por id) → setores contíguos
   const ordem = (m) => [...m.keys()].sort((a, b) => (m.get(b).length - m.get(a).length) || (a < b ? -1 : 1));
-  // setor ∝ n^0.7, com piso de 7% do total para projetos pequenos continuarem visíveis
+  // setor ∝ n^exp com piso. Nos lobos (um projeto só) a área é proporcional ao nº de neurônios:
+  // densidade uniforme, sem setor vazio. No cérebro inteiro, projetos pequenos ganham um piso para aparecer.
+  const exp = opcoes.lobos ? 1 : 0.85;
   const pesos = (m) => {
-    const w = new Map([...m.entries()].map(([k, v]) => [k, Math.pow(v.length, 0.7)]));
+    const w = new Map([...m.entries()].map(([k, v]) => [k, Math.pow(v.length, exp)]));
     const soma = [...w.values()].reduce((a, b) => a + b, 0);
-    for (const [k, v] of w) w.set(k, Math.max(v, soma * 0.07));
+    const piso = opcoes.lobos ? 0.012 : Math.min(0.03, 0.5 / Math.max(1, w.size));
+    for (const [k, v] of w) w.set(k, Math.max(v, soma * piso));
     return w;
   };
 
-  // córtex
+  // córtex: treemap no retângulo de parâmetros (t = frente→trás pelos dois hemisférios, alfa = topo→base).
+  // Cada região/lobo vira um retalho 2D contíguo na superfície, com área ∝ peso e sem buracos.
   const regsC = ordem(cortex);
   const wC = pesos(cortex);
-  const totC = regsC.reduce((s, r) => s + wC.get(r), 0) || 1;
-  let acc = 0;
+  const RW = 1640, RH = 740; // proporção real da superfície desdobrada (2 × profundidade × altura do arco)
+  const INSET = opcoes.lobos ? 5 : 3; // costura visível entre lobos
+  const retalhos = treemap(regsC.map((r) => ({ k: r, w: wC.get(r) })), 0, 0, RW, RH);
   let ordemReg = 0;
   for (const r of regsC) {
     const lista = cortex.get(r);
-    const t0 = acc / totC;
-    acc += wC.get(r);
-    const t1 = acc / totC;
-    const margem = Math.min(0.004, (t1 - t0) * 0.08);
-    // subregiões em subsetores
+    const R = encolher(retalhos.get(r), INSET);
+    // subregiões em sub-retalhos (área ∝ nº de neurônios)
     const subs = new Map();
     for (const n of lista) { if (!subs.has(n.subregiao)) subs.set(n.subregiao, []); subs.get(n.subregiao).push(n); }
     const subOrd = [...subs.keys()].sort((a, b) => (subs.get(b).length - subs.get(a).length) || (a < b ? -1 : 1));
-    const totS = lista.length;
+    const subRet = treemap(subOrd.map((k) => ({ k, w: subs.get(k).length })), R.x, R.y, R.w, R.h);
     // ranking por idade dentro da região (antigo = fundo)
     const porIdade = lista.slice().sort((a, b) => (a.criado - b.criado) || (a.id < b.id ? -1 : 1));
     const rank = new Map();
     porIdade.forEach((n, i) => rank.set(n.id, porIdade.length > 1 ? i / (porIdade.length - 1) : 1));
-    let accS = 0;
     for (const sNome of subOrd) {
-      const sl = subs.get(sNome);
-      const a0 = t0 + margem + (t1 - t0 - 2 * margem) * (accS / totS);
-      accS += sl.length;
-      const a1 = t0 + margem + (t1 - t0 - 2 * margem) * (accS / totS);
-      for (const n of sl) {
+      const S = subRet.get(sNome);
+      for (const n of subs.get(sNome)) {
         const rnd = prng(n.id);
-        const t = a0 + (a1 - a0) * rnd();
+        const t = (S.x + S.w * rnd()) / RW;
         const { s, u } = tParaHemi(Math.min(0.9999, Math.max(0, t)));
-        const alfa = ALFA_MIN + (ALFA_MAX - ALFA_MIN) * Math.pow(rnd(), 0.92);
+        const alfa = ALFA_MIN + (ALFA_MAX - ALFA_MIN) * ((S.y + S.h * rnd()) / RH);
         const idade = 1 - rank.get(n.id);
         let prof = 0.02 + 0.17 * Math.pow(idade, 0.85) + 0.015 * rnd(); // superfície: giros legíveis
         if (n.tipo === 'branch' || n.tipo === 'worktree') prof = 0.55 + 0.08 * rnd(); // "tálamo"
         n.pos = pontoCortex(s, u, alfa, prof).map((v) => Math.round(v * 10) / 10);
       }
     }
-    const tm = (t0 + t1) / 2;
-    const { s, u } = tParaHemi(tm);
-    const c = pontoCortex(s, u, [0.45, 0.95, 0.2][ordemReg++ % 3], -0.22);
-    info.set(r, { centro: c.map(Math.round), hemisferio: s > 0 ? 'D' : 'E', t0, t1 });
+    const tm = (R.x + R.w / 2) / RW;
+    const am = ALFA_MIN + (ALFA_MAX - ALFA_MIN) * ((R.y + R.h / 2) / RH);
+    const { s, u } = tParaHemi(Math.min(0.9999, tm));
+    const c = pontoCortex(s, u, Math.min(am, 1.2) + [0, 0.12, -0.12][ordemReg++ % 3], -0.22);
+    info.set(r, { centro: c.map(Math.round), hemisferio: s > 0 ? 'D' : 'E', t0: R.x / RW, t1: (R.x + R.w) / RW });
   }
 
+  let acc = 0;
   // cerebelo (arquivos dos repositórios)
   const regsB = ordem(cereb);
   const wB = pesos(cereb);

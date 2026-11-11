@@ -11,6 +11,9 @@ const CONFIG_PATH = process.env.CORTEX_CONFIG ? path.resolve(process.env.CORTEX_
 const DATA_DIR = process.env.CORTEX_DATA ? path.resolve(process.env.CORTEX_DATA) : path.join(ROOT, 'data');
 const ENV_PATH = path.join(ROOT, '.env');
 const TIPOS = new Set(['obsidian', 'git', 'claude', 'pasta']);
+// worktrees/clones das sessões do glass-pets ficam todos no mesmo lobo
+const APELIDOS_PADRAO = { 'gp-*': 'glass-pets' };
+const DIARIO_DIR = path.join(ROOT, 'diario');
 
 function novoId() {
   return 'src_' + crypto.randomBytes(3).toString('hex');
@@ -26,6 +29,7 @@ function configPadrao() {
       { id: novoId(), tipo: 'git', caminho: path.join(builder, 'glass-pets'), projeto: 'glass-pets', ativo: true },
       { id: novoId(), tipo: 'claude', caminho: path.join(home, '.claude', 'projects'), ativo: true },
     ],
+    apelidos: { ...APELIDOS_PADRAO },
     claude: { ativo: false, modelo: 'claude-haiku-5-5' },
     som: false,
   };
@@ -45,10 +49,11 @@ function carregar() {
   for (const f of atual.fontes) {
     if (!f.id) f.id = novoId();
     if (f.ativo === undefined) f.ativo = true;
-    if (!f.projeto && f.tipo !== 'claude') f.projeto = baseName(f.caminho) || 'sem-nome';
+    if (!f.projeto && f.tipo !== 'claude') f.projeto = require('./projeto').descobrir(f.caminho, atual).projeto || baseName(f.caminho) || 'sem-nome';
   }
   atual.claude = Object.assign({ ativo: false, modelo: 'claude-haiku-5-5' }, atual.claude || {});
   if (atual.som === undefined) atual.som = false;
+  if (!atual.apelidos || typeof atual.apelidos !== 'object') { atual.apelidos = { ...APELIDOS_PADRAO }; salvar(); }
   criarEnvExemplo();
   return atual;
 }
@@ -64,7 +69,7 @@ function adicionarFonte({ tipo, caminho, projeto, ignorar }) {
   if (!TIPOS.has(tipo)) throw new Error('tipo inválido: ' + tipo);
   if (!caminho) throw new Error('caminho obrigatório');
   const f = { id: novoId(), tipo, caminho: String(caminho), ativo: true };
-  if (tipo !== 'claude') f.projeto = projeto || baseName(caminho) || 'sem-nome';
+  if (tipo !== 'claude') f.projeto = projeto || require('./projeto').descobrir(caminho, get()).projeto || baseName(caminho) || 'sem-nome';
   if (Array.isArray(ignorar)) f.ignorar = ignorar;
   get().fontes.push(f);
   salvar();
@@ -112,4 +117,4 @@ function criarEnvExemplo() {
   ].join('\n'));
 }
 
-module.exports = { ROOT, CONFIG_PATH, DATA_DIR, TIPOS, carregar, salvar, get, adicionarFonte, removerFonte, lerEnv, chaveClaude };
+module.exports = { ROOT, CONFIG_PATH, DATA_DIR, DIARIO_DIR, APELIDOS_PADRAO, TIPOS, carregar, salvar, get, adicionarFonte, removerFonte, lerEnv, chaveClaude };

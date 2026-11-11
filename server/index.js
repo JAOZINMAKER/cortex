@@ -7,6 +7,10 @@
  *  - Fontes "pasta" aceitam o campo opcional "ignorar": [subpastas relativas].
  *  - Subagentes do Claude Code (<sessão>/subagents/agent-*.jsonl) também viram nós tipo "sessao",
  *    com autor "AGENTE <TIPO>", ligados à sessão-mãe por SEQ; não contam em contadores.sessoes.
+ *  - V3: GET /api/projetos aceita ?caminho=<pasta> e devolve também `atual` (projeto descoberto).
+ *    Mensagem WS extra `ajustes` → { ajustes } quando alguém salva /api/ajustes.
+ *    No recorte com um projeto só, as regiões devolvidas são os lobos (subregiões), com campos extras
+ *    { projeto, lobo: true }; vizinhos de fora vão para a região "r_fora".
  *  - `node server/index.js --abrir` abre o navegador depois de subir (usado pelo abrir-cortex.bat).
  *  - A mensagem WS `grafo` só é enviada quando a estrutura muda (nós ou sinapses); mudanças só de
  *    metadados chegam como `evento` e já estão em /api/graph na próxima busca.
@@ -22,6 +26,11 @@ const telemetry = require('./telemetry');
 const classify = require('./classify');
 const graph = require('./graph');
 const watch = require('./watch');
+const projeto = require('./projeto');
+const visoes = require('./visoes');
+const ajustes = require('./ajustes');
+const diario = require('./diario');
+const resumo = require('./resumo');
 const { sha1, normPath, baseName, existe, ehTexto, dayKey } = require('./util');
 const fontes = {
   obsidian: require('./sources/obsidian'),
@@ -47,12 +56,16 @@ telemetry.definirFila(() => filaReconstrucao + classify.tamanhoFila());
 
 function log(...a) { console.log('[CÓRTEX]', ...a); }
 
+// fontes da config + o diário interno (sempre ligado)
+function todasFontes() { return [...config.get().fontes, diario.FONTE]; }
+
 function statusFontes() {
-  return config.get().fontes.map((f) => {
+  return todasFontes().map((f) => {
     const p = parciais.get(f.id);
     const o = { id: f.id, tipo: f.tipo, caminho: f.caminho, projeto: f.projeto || null, status: p ? p.status : 'LENDO', itens: p ? p.itens : 0 };
     if (p && p.erro) o.erro = p.erro;
     if (f.ativo === false) o.status = 'AUSENTE';
+    if (f.interno) o.interno = true;
     return o;
   });
 }
@@ -94,9 +107,11 @@ function assinaturaDe(pub) {
 }
 
 function montarGrafo(motivo) {
-  const lista = config.get().fontes.map((f) => parciais.get(f.id)).filter(Boolean).map((p) => ({ fonte: p.fonte, r: p.r }));
+  const lista = todasFontes().map((f) => parciais.get(f.id)).filter(Boolean).map((p) => ({ fonte: p.fonte, r: p.r }));
   const anterior = G;
-  const novo = graph.montar(lista, statusFontes());
+  const novo = graph.montar(lista, statusFontes(), { descobrir: (c) => projeto.descobrir(c, config.get()) });
+  cacheRecortes.clear();
+  try { visoes.garantirPadrao(nomesProjetos(novo)); } catch (e) { log('visões padrão:', e.message); }
   const ass = assinaturaDe(novo.publico);
   const estruturaMudou = ass !== assinatura;
   versao++;
@@ -148,7 +163,7 @@ async function construirTudo(motivo) {
   filaReconstrucao++;
   try {
     const t0 = Date.now();
-    await Promise.all(config.get().fontes.map((f) => lerFonte(f)));
+    await Promise.all(todasFontes().map((f) => lerFonte(f)));
     montarGrafo(motivo);
     for (const p of parciais.values()) {
       if (!p.r) continue;
@@ -196,6 +211,7 @@ function atualizarRapido(r) {
   G.publico.versao = versao;
   G.publico.geradoEm = Date.now();
   cacheJson = null;
+  cacheRecortes.clear();
   return true;
 }
 
@@ -228,7 +244,7 @@ async function aoMudar(fonte, mudancas) {
 }
 
 function vigiarTudo() {
-  for (const f of config.get().fontes) watch.vigiar(f, aoMudar);
+  for (const f of todasFontes()) watch.vigiar(f, aoMudar);
 }
 
 // ---------------------------------------------------------------- máquina
@@ -388,16 +404,120 @@ function lerCorpo(req) {
   });
 }
 
-function respostaGrafo(req, res) {
-  if (!G) return json(res, 200, grafoVazio(), req);
+// ---------------------------------------------------------------- V3: projetos, visões, recortes
+const cacheRecortes = new Map(); // chave -> { versao, gz, buf }
+
+function nomesProjetos(g) {
+  const ks = new Set();
+  for (const n of g.interno.nos) if (n.tipo !== 'dia') ks.add(n.projeto);
+  return [...ks].map((k) => g.interno.nomeProj.get(k) || k).sort();
+}
+
+function listaProjetos() {
+  if (!G) return [];
+  const m = new Map();
+  for (const n of G.interno.nos) {
+    if (n.tipo === 'dia') continue;
+    let p = m.get(n.projeto);
+    if (!p) { p = { nome: G.interno.nomeProj.get(n.projeto) || n.projeto, regiao: 'r_' + n.projeto, neuronios: 0, notas: 0, commits: 0, sessoes: 0, ultimoPulso: 0, _subs: new Set() }; m.set(n.projeto, p); }
+    p.neuronios++;
+    if (n.tipo === 'nota') p.notas++;
+    else if (n.tipo === 'commit') p.commits++;
+    else if (n.tipo === 'sessao' && !n.extra.agente) p.sessoes++;
+    if (n.modificado > p.ultimoPulso) p.ultimoPulso = Math.round(n.modificado);
+    if (n.subregiao) p._subs.add(n.subregiao);
+  }
+  const caminhos = new Map();
+  for (const f of config.get().fontes) if (f.projeto) { const k = require('./util').slug(f.projeto); if (!caminhos.has(k)) caminhos.set(k, []); caminhos.get(k).push(f.caminho); }
+  return [...m.entries()].sort((a, b) => b[1].ultimoPulso - a[1].ultimoPulso).map(([k, p]) => {
+    const { _subs, ...resto } = p;
+    return { ...resto, subregioes: [..._subs].sort(), caminhos: caminhos.get(k) || [] };
+  });
+}
+
+// visão pedida na query: ?visao=<id> ou campos soltos
+function visaoDaQuery(sp) {
+  const id = sp.get('visao');
+  if (id) {
+    const v = visoes.obter(id);
+    if (!v) return { erro: 'visão não encontrada: ' + id };
+    return { visao: v };
+  }
+  const o = {};
+  for (const k of ['projetos', 'fontes', 'tipos', 'desde', 'ate', 'tags', 'grauMin', 'texto', 'vizinhos']) if (sp.has(k)) o[k] = sp.get(k);
+  const v = visoes.normalizar(o);
+  return { visao: visoes.temFiltro(v) ? v : null };
+}
+
+function enviarBuf(req, res, buf, gzBuf) {
+  const gz = /gzip/.test(req.headers['accept-encoding'] || '');
+  res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...(gz ? { 'content-encoding': 'gzip' } : {}) });
+  res.end(gz ? gzBuf : buf);
+}
+
+function respostaGrafo(req, res, sp) {
+  if (!G) return json(res, 200, { ...grafoVazio(), visao: null, total: { neuronios: 0, sinapses: 0 } }, req);
+  const q = visaoDaQuery(sp);
+  if (q.erro) return json(res, 404, { erro: q.erro });
+  if (q.visao) {
+    const k = JSON.stringify({ ...q.visao, id: undefined, nome: undefined });
+    let c = cacheRecortes.get(k);
+    if (!c || c.versao !== versao) {
+      const t0 = Date.now();
+      const r = graph.recortar(G, visoes.resolver(q.visao));
+      r.visao = q.visao; // devolve como foi pedida (com "7d" relativo, se for o caso)
+      const buf = Buffer.from(JSON.stringify(r));
+      c = { versao, buf, gz: zlib.gzipSync(buf, { level: 4 }), ms: Date.now() - t0 };
+      if (cacheRecortes.size > 16) cacheRecortes.delete(cacheRecortes.keys().next().value);
+      cacheRecortes.set(k, c);
+    }
+    return enviarBuf(req, res, c.buf, c.gz);
+  }
   if (!cacheJson || cacheJson.versao !== versao) {
     G.publico.fontes = statusFontes();
-    const buf = Buffer.from(JSON.stringify(G.publico));
+    const buf = Buffer.from(JSON.stringify({ ...G.publico, visao: null, total: { neuronios: G.publico.nos.length, sinapses: G.publico.sinapses.length } }));
     cacheJson = { versao, buf, gz: zlib.gzipSync(buf, { level: 4 }) };
   }
   const gz = /gzip/.test(req.headers['accept-encoding'] || '');
   res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...(gz ? { 'content-encoding': 'gzip' } : {}) });
   res.end(gz ? cacheJson.gz : cacheJson.buf);
+}
+
+// ---------------------------------------------------------------- diário
+async function registrar(req, res) {
+  const corpo = await lerCorpo(req);
+  if (!corpo) return json(res, 400, { erro: 'JSON inválido' });
+  const proj = String(corpo.projeto || '').trim();
+  const titulo = String(corpo.titulo || '').trim().slice(0, 140);
+  if (!proj || !titulo) return json(res, 400, { erro: 'projeto e titulo são obrigatórios' });
+  const tags = Array.isArray(corpo.tags) ? corpo.tags : String(corpo.tags || '').split(',');
+  const ligar = Array.isArray(corpo.ligar) ? corpo.ligar : String(corpo.ligar || '').split(',');
+  // resolve ids ou títulos para neurônios existentes
+  const ligacoes = [];
+  const naoAchados = [];
+  for (const alvo0 of ligar.map((x) => String(x).trim()).filter(Boolean).slice(0, 50)) {
+    let n = null;
+    if (G) {
+      const i = G.interno.porId.get(alvo0);
+      if (i !== undefined) n = G.interno.nos[i];
+      else {
+        const t = alvo0.toLowerCase();
+        const cands = G.interno.nos.filter((x) => x.tipo !== 'dia' && (x.titulo || '').toLowerCase() === t);
+        cands.sort((a, b) => (b.tipo === 'nota') - (a.tipo === 'nota') || b.grau - a.grau);
+        n = cands[0] || G.interno.nos.find((x) => x.idCurto === alvo0 || (x.hash && x.hash.startsWith(alvo0) && alvo0.length >= 6)) || null;
+      }
+    }
+    if (n) ligacoes.push({ id: n.id, titulo: n.titulo }); else naoAchados.push(alvo0);
+  }
+  let r;
+  try {
+    r = diario.escrever({ projeto: proj, titulo, texto: corpo.texto || '', tags, autor: corpo.autor ? String(corpo.autor).slice(0, 60) : 'CLAUDE CODE', ligacoes });
+  } catch (e) { return json(res, 500, { erro: 'falha ao gravar: ' + e.message }); }
+  const id = graph.idDe(r.chave);
+  telemetry.emitir({ nivel: 'PULSO', fonte: 'obsidian', msg: `REGISTRO ${proj.toUpperCase()} · ${titulo}`.slice(0, 160), id });
+  // reconstrói já, para o id responder na hora (o watch chega depois e não muda nada)
+  try { await aoMudar(diario.FONTE, [{ caminho: r.caminho, tipo: 'add' }]); } catch { /* o watch tenta de novo */ }
+  return json(res, 200, { id, caminho: r.caminho, ligados: ligacoes.length, naoEncontrados: naoAchados });
 }
 
 const VENDOR = {
@@ -410,7 +530,54 @@ const servidor = http.createServer(async (req, res) => {
   const p = decodeURIComponent(url.pathname);
   try {
     // ---- API
-    if (p === '/api/graph' && req.method === 'GET') return respostaGrafo(req, res);
+    if (p === '/api/graph' && req.method === 'GET') return respostaGrafo(req, res, url.searchParams);
+    // ---- V3
+    if (p === '/api/visoes' && req.method === 'GET') return json(res, 200, { visoes: visoes.todas(), atual: visoes.getAtual() });
+    if (p === '/api/visoes' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      if (!corpo) return json(res, 400, { erro: 'JSON inválido' });
+      try { return json(res, 200, { ok: true, visao: visoes.gravar(corpo) }); } catch (e) { return json(res, 400, { erro: e.message }); }
+    }
+    if (p.startsWith('/api/visoes/') && req.method === 'DELETE') {
+      return visoes.remover(p.slice('/api/visoes/'.length)) ? json(res, 200, { ok: true }) : json(res, 404, { erro: 'visão não encontrada' });
+    }
+    if (p === '/api/visao/atual' && req.method === 'GET') return json(res, 200, { visao: visoes.getAtual() });
+    if (p === '/api/visao/atual' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      if (!corpo) return json(res, 400, { erro: 'JSON inválido' });
+      let v;
+      if (corpo.id && Object.keys(corpo).length === 1) {
+        v = visoes.obter(corpo.id);
+        if (!v) return json(res, 404, { erro: 'visão não encontrada: ' + corpo.id });
+      } else if (corpo.limpar || corpo.id === 'tudo') v = visoes.obter('tudo') || null;
+      else v = visoes.normalizar(corpo);
+      visoes.setAtual(v);
+      broadcast({ tipo: 'visao', visao: v });
+      telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `VISÃO → ${v ? (v.nome || v.id || JSON.stringify(v)).slice(0, 100) : 'TUDO'}` });
+      return json(res, 200, { ok: true, visao: v, janelas: wss.clients.size });
+    }
+    if (p === '/api/projetos') {
+      const o = { projetos: listaProjetos() };
+      const cam = url.searchParams.get('caminho');
+      if (cam) o.atual = { caminho: cam, ...projeto.descobrir(cam, config.get()) };
+      return json(res, 200, o, req);
+    }
+    if (p === '/api/ajustes' && req.method === 'GET') return json(res, 200, ajustes.get());
+    if (p === '/api/ajustes' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      if (!corpo) return json(res, 400, { erro: 'JSON inválido' });
+      const a = ajustes.set(corpo);
+      broadcast({ tipo: 'ajustes', ajustes: a });
+      return json(res, 200, a);
+    }
+    if (p === '/api/registrar' && req.method === 'POST') return registrar(req, res);
+    if (p === '/api/resumo') {
+      if (!G) return json(res, 503, { erro: 'carregando' });
+      const dias = Math.max(1, Math.min(365, parseInt(url.searchParams.get('dias'), 10) || 7));
+      const txt = resumo.gerar(G, { projeto: url.searchParams.get('projeto') || null, dias });
+      res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(txt);
+    }
     if (p.startsWith('/api/no/')) {
       const resto = p.slice('/api/no/'.length).split('/');
       const id = resto[0];
@@ -436,6 +603,7 @@ const servidor = http.createServer(async (req, res) => {
       if (!corpo) return json(res, 400, { erro: 'JSON inválido' });
       let f;
       try { f = config.adicionarFonte(corpo); } catch (e) { return json(res, 400, { erro: e.message }); }
+      projeto.limparCache();
       telemetry.emitir({ nivel: 'INFO', fonte: f.tipo, msg: `FONTE CONECTADA ${f.tipo.toUpperCase()} ${f.caminho}` });
       (async () => { filaReconstrucao++; try { const reg = await lerFonte(f); montarGrafo('fonte conectada'); eventosNovos(reg); watch.vigiar(f, aoMudar); } finally { filaReconstrucao--; } })();
       return json(res, 200, { ok: true, fonte: f });
@@ -446,6 +614,7 @@ const servidor = http.createServer(async (req, res) => {
       if (!f) return json(res, 404, { erro: 'fonte não encontrada' });
       watch.parar(id);
       parciais.delete(id);
+      projeto.limparCache();
       telemetry.emitir({ nivel: 'ALERTA', fonte: f.tipo, msg: `FONTE DESCONECTADA ${f.tipo.toUpperCase()} ${f.caminho}` });
       setImmediate(() => montarGrafo('fonte removida'));
       return json(res, 200, { ok: true });
@@ -480,6 +649,8 @@ function broadcast(msg) {
 }
 wss.on('connection', (ws) => {
   ws.send(JSON.stringify({ tipo: 'ola', versao }));
+  const va = visoes.getAtual();
+  if (va) ws.send(JSON.stringify({ tipo: 'visao', visao: va }));
 });
 telemetry.ouvir((e) => broadcast({ tipo: 'evento', ...e }));
 setInterval(() => broadcast({ tipo: 'status', ...telemetry.status() }), 1000).unref();
@@ -513,6 +684,7 @@ servidor.listen(PORTA, '127.0.0.1', async () => {
   if (process.argv.includes('--abrir')) abrirNavegador(url);
   telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CÓRTEX ONLINE · ${config.get().fontes.length} FONTES · PORTA ${PORTA}` });
   try {
+    diario.garantirPasta();
     const ms = await construirTudo('boot');
     emitirHistorico();
     pronto = true;

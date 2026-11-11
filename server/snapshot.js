@@ -10,6 +10,9 @@ const leitores = {
 
 (async () => {
   const cfg = config.carregar();
+  const diario = require('./diario');
+  diario.garantirPasta();
+  cfg.fontes = cfg.fontes.concat([diario.FONTE]);
   const t0 = Date.now();
   const parciais = [];
   const status = [];
@@ -27,7 +30,8 @@ const leitores = {
     }
   }
   const tL = Date.now() - t0;
-  const g = graph.montar(parciais, status);
+  const projeto = require('./projeto');
+  const g = graph.montar(parciais, status, { descobrir: (c) => projeto.descobrir(c, cfg) });
   const c = g.publico.contadores;
   console.log('\nCONTADORES', JSON.stringify(c));
   console.log('\nREGIÕES');

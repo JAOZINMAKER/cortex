@@ -1,0 +1,56 @@
+'use strict';
+// Diário das sessões: .md em cortex/diario/<projeto>/AAAA-MM-DD-<slug>.md.
+// É uma fonte "obsidian" interna, sempre ligada. Nunca escreve nos cofres do usuário.
+const fs = require('fs');
+const path = require('path');
+const { slug, dayKey, normPath } = require('./util');
+const config = require('./config');
+
+const FONTE = Object.freeze({
+  id: 'src_diario', tipo: 'obsidian', caminho: config.DIARIO_DIR, projeto: 'diario',
+  projetoPorPasta: true, ativo: true, interno: true,
+});
+
+function garantirPasta() {
+  fs.mkdirSync(config.DIARIO_DIR, { recursive: true });
+  const leia = path.join(config.DIARIO_DIR, 'LEIA-ME.txt');
+  if (!fs.existsSync(leia)) {
+    fs.writeFileSync(leia, 'Diário do CÓRTEX: registros gravados por sessões via `cortex registrar` ou POST /api/registrar.\r\nUma pasta por projeto. Pode editar ou apagar à vontade.\r\n');
+  }
+}
+
+const yamlStr = (s) => JSON.stringify(String(s)); // aspas duplas escapadas = YAML válido
+const linhaWiki = (t) => String(t).replace(/[\[\]|#^]/g, ' ').replace(/\s+/g, ' ').trim();
+
+// ligacoes: [{ id, titulo }] já resolvidas pelo servidor
+function escrever({ projeto, titulo, texto, tags, autor, ligacoes }) {
+  garantirPasta();
+  const agora = new Date();
+  const dir = path.join(config.DIARIO_DIR, slug(projeto));
+  fs.mkdirSync(dir, { recursive: true });
+  const base = `${dayKey(agora.getTime())}-${slug(titulo).slice(0, 60)}`;
+  let arq = path.join(dir, base + '.md');
+  for (let i = 2; fs.existsSync(arq); i++) arq = path.join(dir, `${base}-${i}.md`);
+  const tagsL = (tags || []).map((t) => String(t).trim().replace(/^#/, '')).filter(Boolean).slice(0, 20);
+  const lig = (ligacoes || []).slice(0, 50);
+  const fm = [
+    '---',
+    `projeto: ${yamlStr(projeto)}`,
+    `titulo: ${yamlStr(titulo)}`,
+    `autor: ${yamlStr(autor || 'CLAUDE CODE')}`,
+    `tags: [${tagsL.map(yamlStr).join(', ')}]`,
+    `criado: ${agora.toISOString()}`,
+    `ligar: [${lig.map((l) => yamlStr(l.id)).join(', ')}]`,
+    '---',
+  ];
+  const corpo = [`# ${titulo}`, '', String(texto || '').trim(), ''];
+  if (lig.length) {
+    corpo.push('## Ligações', '');
+    for (const l of lig) corpo.push(`- [[${linhaWiki(l.titulo)}]] \`${l.id.slice(0, 6)}\``);
+    corpo.push('');
+  }
+  fs.writeFileSync(arq, fm.concat(corpo).join('\n'), 'utf8');
+  return { caminho: arq, chave: 'nota:' + normPath(arq) };
+}
+
+module.exports = { FONTE, garantirPasta, escrever };

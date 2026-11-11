@@ -67,7 +67,13 @@ async function ler(fonte) {
   const nos = [];
   const links = [];
   const eventos = [];
-  const chaveCommit = (sha) => 'commit:' + normPath(repo) + ':' + sha;
+  // commits e branches são chaveados pelo .git comum: worktrees e o repo principal não duplicam neurônios
+  let comum = repo;
+  try { comum = path.resolve(repo, (await git(repo, ['rev-parse', '--git-common-dir'])).trim()); } catch { /* usa o repo */ }
+  const chaveRepo = normPath(comum);
+  // commit = mesmo sha no mesmo projeto (clones separados do mesmo projeto também não duplicam)
+  const chaveProj = fonte.projeto ? 'p:' + require('../util').slug(fonte.projeto) : chaveRepo;
+  const chaveCommit = (sha) => 'commit:' + chaveProj + ':' + sha;
   const shaSet = new Set(commits.map((c) => c.sha));
 
   // estatística de arquivos (todos, para datas de notas) e escolha dos mais tocados
@@ -124,7 +130,7 @@ async function ler(fonte) {
     for (const l of refs.split('\n')) {
       const [ref, obj, cd, curto] = l.split(SEP);
       if (!ref || ref.endsWith('/HEAD')) continue;
-      const k = 'branch:' + normPath(repo) + ':' + ref;
+      const k = 'branch:' + chaveRepo + ':' + ref;
       const t = (parseInt(cd, 10) || 0) * 1000;
       nos.push({ chave: k, tipo: 'branch', fonte: 'git', titulo: curto, subregiao: 'BRANCHES', criado: t, modificado: t,
         palavras: 0, autor: 'GIT', hash: (obj || '').slice(0, 12), caminho: repo, texto: 'branch ' + curto, extra: { ref, sha: obj } });

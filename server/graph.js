@@ -11,7 +11,8 @@ const DIA_MS = 86400000;
 function idDe(chave) { return sha1(chave).slice(0, 16); }
 
 // parciais: [{ fonte: cfg, r: resultado }]
-function montar(parciais, statusFontes) {
+// opcoes.descobrir(caminho) → { projeto, base } (server/projeto.js)
+function montar(parciais, statusFontes, opcoes = {}) {
   const t0 = Date.now();
   const ps = parciais.filter((p) => p.r).sort((a, b) => ORDEM_TIPO[a.fonte.tipo] - ORDEM_TIPO[b.fonte.tipo]);
 
@@ -62,7 +63,14 @@ function montar(parciais, statusFontes) {
         if (ja) { alias.set(n.chave, ja); continue; }
       }
       if (porChave.has(n.chave)) continue;
-      const projeto = n.tipo === 'sessao' ? projetoDoCwd(n.cwd, n.projetoBruto) : projetoFonte;
+      let projeto = n.projetoNota || projetoFonte;
+      if (n.tipo === 'sessao') {
+        if (opcoes.descobrir && n.cwd) {
+          const d = opcoes.descobrir(n.cwd);
+          projeto = d.projeto;
+          n.subregiao = d.base || 'SESSOES'; // worktree/pasta original vira sub-setor do lobo
+        } else projeto = projetoDoCwd(n.cwd, n.projetoBruto);
+      }
       n.projeto = canon(projeto);
       if (n.tipo === 'nota') {
         const g = datasGit[normPath(n.caminho)];
@@ -128,6 +136,9 @@ function montar(parciais, statusFontes) {
     return i === undefined ? -1 : novoIdx[i];
   };
 
+  const idParaIdx = new Map();
+  nosOrd.forEach((n, i) => idParaIdx.set(n.id, i));
+
   // sinapses
   const sinapses = [];
   const vistos = new Set();
@@ -143,6 +154,7 @@ function montar(parciais, statusFontes) {
       const a = idxDe(l.de);
       let b;
       if (typeof l.para === 'string') b = idxDe(l.para);
+      else if (l.para.id) b = idParaIdx.has(l.para.id) ? idParaIdx.get(l.para.id) : -1;
       else {
         const ch = porCaminho.get(normPath(l.para.caminho));
         b = ch ? idxDe(ch) : -1;
@@ -205,9 +217,35 @@ function montar(parciais, statusFontes) {
   // organização automática (tags da máquina)
   classify.classificar(nosOrd);
 
+  const fim = finalizar(nosOrd, sinapses, (id) => nomeProj.get(id.slice(2)) || id.slice(2));
+
+  // eventos históricos (log) com id do nó
+  const eventosHist = [];
+  for (const p of ps) {
+    for (const e of p.r.eventos) {
+      const k = e.chave ? idxDe(e.chave) : -1;
+      const n = k >= 0 ? nosOrd[k] : null;
+      eventosHist.push({ t: e.t, nivel: 'HIST', fonte: e.fonte, msg: e.msg, id: n ? n.id : undefined, hash: e.hash, arquivo: e.arquivo });
+    }
+  }
+  eventosHist.sort((a, b) => a.t - b.t);
+
+  const porId = new Map();
+  nosOrd.forEach((n, i) => porId.set(n.id, i));
+
+  return {
+    publico: { versao: 0, geradoEm: Date.now(), regioes: fim.regioes, nos: fim.publicos, sinapses, dias, contadores: fim.contadores, fontes: statusFontes },
+    interno: { nos: nosOrd, porId, adj, historicoArquivos, eventosHist, nomeProj, msBuild: Date.now() - t0 },
+  };
+}
+
+
+// layout + regiões + contadores + nós públicos. Usado no grafo completo e nos recortes (visões).
+// nomeRegiao(id) → nome; extras(regiaoId) → campos extras da região (ex.: projeto do lobo)
+function finalizar(nosOrd, sinapses, nomeRegiao, opcoesLayout = {}, extras = null) {
   // layout
   const regIds = [...new Set(nosOrd.map((n) => n.regiao))];
-  const info = layout.calcular(nosOrd, regIds);
+  const info = layout.calcular(nosOrd, regIds, opcoesLayout);
 
   // regiões
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
@@ -215,9 +253,9 @@ function montar(parciais, statusFontes) {
   const regioes = new Map();
   regIds.sort((a, b) => (a === 'r_tronco') - (b === 'r_tronco') || (a < b ? -1 : 1)).forEach((id, i) => {
     const inf = info.get(id) || { centro: [0, 0, 0], hemisferio: 'D' };
-    const nomeBase = nomeProj.get(id.slice(2)) || id.slice(2);
+    const nomeBase = nomeRegiao(id);
     regioes.set(id, { id, nome: String(nomeBase).toUpperCase(), serial: 'RG-' + String(i + 1).padStart(4, '0'), hemisferio: inf.hemisferio,
-      centro: inf.centro, neuronios: 0, sinapses: 0, ultimoPulso: 0, atividade7d: [0, 0, 0, 0, 0, 0, 0], _subs: new Map() });
+      centro: inf.centro, neuronios: 0, sinapses: 0, ultimoPulso: 0, atividade7d: [0, 0, 0, 0, 0, 0, 0], ...(extras ? extras(id) : {}), _subs: new Map() });
   });
   function marcar(r, t) {
     if (t >= inicio7) { const d = Math.floor((t - inicio7) / DIA_MS); if (d >= 0 && d < 7) r.atividade7d[d]++; }
@@ -238,16 +276,7 @@ function montar(parciais, statusFontes) {
     if (rb !== ra) rb.sinapses++;
   }
   // tool_use das sessões contam como atividade
-  const eventosHist = [];
-  for (const p of ps) {
-    for (const e of p.r.eventos) {
-      const i = e.chave ? idxDe(e.chave) : -1;
-      const n = i >= 0 ? nosOrd[i] : null;
-      if (n && e.fonte === 'claude') marcar(regioes.get(n.regiao), e.t);
-      eventosHist.push({ t: e.t, nivel: 'HIST', fonte: e.fonte, msg: e.msg, id: n ? n.id : undefined, hash: e.hash, arquivo: e.arquivo });
-    }
-  }
-  eventosHist.sort((a, b) => a.t - b.t);
+  for (const n of nosOrd) if (n.tipo === 'sessao' && n._eventos) { const r = regioes.get(n.regiao); for (const e of n._eventos) marcar(r, e.t); }
 
   const regioesArr = [...regioes.values()].map((r) => {
     const subregioes = [...r._subs.entries()].sort((a, b) => b[1] - a[1]).map(([nome, n]) => ({ id: r.id + '/' + slug(nome), nome, n }));
@@ -256,7 +285,7 @@ function montar(parciais, statusFontes) {
   });
 
   // contadores
-  const cont = { notas: 0, commits: 0, linhas: 0, sessoes: 0, horasIA: 0, neuronios: N, sinapses: sinapses.length, arquivos: 0, regioes: regioesArr.length, ferramentas: 0 };
+  const cont = { notas: 0, commits: 0, linhas: 0, sessoes: 0, horasIA: 0, neuronios: nosOrd.length, sinapses: sinapses.length, arquivos: 0, regioes: regioesArr.length, ferramentas: 0 };
   for (const n of nosOrd) {
     if (n.tipo === 'nota') cont.notas++;
     else if (n.tipo === 'commit') { cont.commits++; cont.linhas += n.palavras; }
@@ -266,15 +295,102 @@ function montar(parciais, statusFontes) {
   cont.horasIA = Math.round(cont.horasIA / 360000) / 10;
 
   const CAMPOS = ['id', 'idCurto', 'tipo', 'fonte', 'titulo', 'regiao', 'subregiao', 'pos', 'criado', 'modificado', 'palavras', 'grau', 'autor', 'hash', 'caminho', 'tags', 'cluster', 'orfao'];
-  const publicos = nosOrd.map((n) => { const o = {}; for (const c of CAMPOS) o[c] = n[c] === undefined ? null : n[c]; o.criado = Math.round(o.criado || 0); o.modificado = Math.round(o.modificado || 0); return o; });
+  const publicos = nosOrd.map((n) => {
+    const o = {};
+    for (const c of CAMPOS) o[c] = n[c] === undefined ? null : n[c];
+    o.criado = Math.round(o.criado || 0); o.modificado = Math.round(o.modificado || 0);
+    if (n.fora) o.fora = true;
+    return o;
+  });
+  return { regioes: regioesArr, contadores: cont, publicos, info };
+}
 
-  const porId = new Map();
-  nosOrd.forEach((n, i) => porId.set(n.id, i));
+const MAX_LOBOS = 32;
 
+// Recorte de uma visão: filtra, puxa vizinhos (fora: true) e refaz o layout.
+// Com um projeto só, as subregiões viram os lobos e ocupam o cérebro inteiro.
+function recortar(G, visao) {
+  const I = G.interno, P = G.publico;
+  const N = I.nos.length;
+  const v = visao || {};
+  const projSet = v.projetos && v.projetos.length ? new Set(v.projetos.map((x) => slug(String(x).replace(/^r_/, '')))) : null;
+  const fontes = v.fontes && v.fontes.length ? new Set(v.fontes) : null;
+  const tipos = v.tipos && v.tipos.length ? new Set(v.tipos) : null;
+  const tags = v.tags && v.tags.length ? new Set(v.tags.map((t) => String(t).toUpperCase())) : null;
+  const texto = v.texto ? String(v.texto).toLowerCase() : '';
+  const desde = Number(v.desde) || 0, ate = Number(v.ate) || 0, grauMin = Number(v.grauMin) || 0;
+  const sel = new Uint8Array(N); // 1 = no filtro, 2 = vizinho de fora, 3 = dia
+  for (let i = 0; i < N; i++) {
+    const n = I.nos[i];
+    if (n.tipo === 'dia') continue;
+    if (projSet && !projSet.has(n.projeto) && !projSet.has(n.regiao.slice(2))) continue;
+    if (fontes && !fontes.has(n.fonte)) continue;
+    if (tipos && !tipos.has(n.tipo)) continue;
+    if (desde && n.modificado < desde) continue;
+    if (ate && n.criado > ate) continue;
+    if (grauMin && n.grau < grauMin) continue;
+    if (tags && !(n.tags || []).some((t) => tags.has(String(t).toUpperCase()))) continue;
+    if (texto && !String(n.titulo || '').toLowerCase().includes(texto) && !String(n.caminho || '').toLowerCase().includes(texto)) continue;
+    sel[i] = 1;
+  }
+  const saltos = Math.max(0, Math.min(2, Number(v.vizinhos) || 0));
+  let fronteira = [];
+  for (let i = 0; i < N; i++) if (sel[i] === 1) fronteira.push(i);
+  for (let h = 0; h < saltos; h++) {
+    const prox = [];
+    for (const i of fronteira) {
+      const a = I.adj[i];
+      for (let j = 0; j < a.length; j += 2) if (!sel[a[j]] && I.nos[a[j]].tipo !== 'dia') { sel[a[j]] = 2; prox.push(a[j]); }
+    }
+    fronteira = prox;
+  }
+  if (!tipos || tipos.has('dia')) {
+    for (const s of P.sinapses) {
+      if (s.tipo !== 'DIA') continue;
+      const na = I.nos[s.a], nb = I.nos[s.b];
+      if (na.tipo === 'dia' && sel[s.b] && sel[s.b] !== 3) sel[s.a] = 3;
+      else if (nb.tipo === 'dia' && sel[s.a] && sel[s.a] !== 3) sel[s.b] = 3;
+    }
+  }
+  const novo = new Int32Array(N).fill(-1);
+  const copias = [];
+  for (let i = 0; i < N; i++) if (sel[i]) { novo[i] = copias.length; copias.push({ ...I.nos[i], pos: null, fora: sel[i] === 2 }); }
+
+  // modo lobos: um projeto só no recorte
+  const projs = new Set(copias.filter((n) => !n.fora && n.tipo !== 'dia').map((n) => n.regiao));
+  const nomes = new Map([['r_tronco', 'TRONCO // TEMPO'], ['r_fora', 'FORA DO RECORTE']]);
+  const extrasReg = new Map();
+  const nomeProj = (rid) => I.nomeProj.get(rid.slice(2)) || rid.slice(2);
+  if (projs.size === 1) {
+    const rid = [...projs][0];
+    const lobo = (n) => (n.tipo === 'sessao' ? 'SESSÕES' : n.tipo === 'branch' || n.tipo === 'worktree' ? 'BRANCHES' : n.subregiao || '/');
+    const cont = new Map();
+    for (const n of copias) if (!n.fora && n.tipo !== 'dia' && n.tipo !== 'arquivo') cont.set(lobo(n), (cont.get(lobo(n)) || 0) + 1);
+    const ordem = [...cont.entries()].sort((a, b) => b[1] - a[1]);
+    const manter = new Set(ordem.slice(0, ordem.length > MAX_LOBOS ? MAX_LOBOS - 1 : MAX_LOBOS).map((e) => e[0]));
+    for (const n of copias) {
+      if (n.fora || n.tipo === 'dia') continue;
+      // arquivos dos repos formam um lobo só (o cerebelo); suas pastas viram sub-setores
+      let l = n.tipo === 'arquivo' ? 'ARQUIVOS' : lobo(n);
+      if (n.tipo !== 'arquivo' && !manter.has(l)) l = 'OUTROS';
+      const id = rid + '/' + slug(l === '/' ? 'raiz' : l);
+      n.regiao = id;
+      if (!nomes.has(id)) { nomes.set(id, l === '/' ? 'RAIZ' : l); extrasReg.set(id, { projeto: nomeProj(rid), lobo: true }); }
+    }
+  }
+  for (const n of copias) if (n.fora) n.regiao = 'r_fora';
+
+  const sinapses = [];
+  for (const s of P.sinapses) {
+    const a = novo[s.a], b = novo[s.b];
+    if (a >= 0 && b >= 0) sinapses.push({ a, b, tipo: s.tipo, peso: s.peso });
+  }
+  const fim = finalizar(copias, sinapses, (id) => nomes.get(id) || nomeProj(id), { lobos: projs.size === 1 }, (id) => extrasReg.get(id) || {});
+  const dias = copias.filter((n) => n.tipo === 'dia').map((n) => n.titulo).sort();
   return {
-    publico: { versao: 0, geradoEm: Date.now(), regioes: regioesArr, nos: publicos, sinapses, dias, contadores: cont, fontes: statusFontes },
-    interno: { nos: nosOrd, porId, adj, historicoArquivos, eventosHist, msBuild: Date.now() - t0 },
+    versao: P.versao, geradoEm: Date.now(), regioes: fim.regioes, nos: fim.publicos, sinapses, dias, contadores: fim.contadores,
+    fontes: P.fontes, visao: visao || null, total: { neuronios: N, sinapses: P.sinapses.length },
   };
 }
 
-module.exports = { montar, idDe };
+module.exports = { montar, finalizar, recortar, idDe };

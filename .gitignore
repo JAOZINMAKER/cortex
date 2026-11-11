@@ -3,3 +3,4 @@ data/
 .env
 cortex.config.json
 prints/
+diario/

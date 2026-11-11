@@ -91,7 +91,13 @@ async function ler(fonte) {
       for (const t of inline) tagsTexto.push(t.trim().slice(1));
       const criadoFm = parseData(fm.created || fm.criado || fm.date || fm.data);
       const birth = r.st.birthtimeMs && r.st.birthtimeMs > 0 ? r.st.birthtimeMs : r.st.mtimeMs;
-      const sub = rel.includes('/') ? rel.split('/')[0] : '/';
+      let sub = rel.includes('/') ? rel.split('/')[0] : '/';
+      let projetoNota;
+      if (fonte.projetoPorPasta) {
+        // diário interno: <projeto>/<arquivo>.md; o frontmatter guarda o nome exato do projeto
+        projetoNota = limpar(fm.projeto || sub);
+        sub = 'DIÁRIO';
+      }
       const idx = notas.length;
       notas.push({
         chave: 'nota:' + normPath(r.abs),
@@ -106,7 +112,9 @@ async function ler(fonte) {
         hash: sha1(r.txt).slice(0, 12),
         caminho: r.abs,
         texto: corpo.slice(0, 4000),
-        extra: { rel, tagsTexto: [...new Set(tagsTexto)].slice(0, 30), aliases: listaTags(fm.aliases) },
+        extra: { rel, tagsTexto: [...new Set(tagsTexto)].slice(0, 30), aliases: listaTags(fm.aliases), ...(projetoNota ? { diario: true } : {}) },
+        ...(projetoNota ? { projetoNota } : {}),
+        _ligar: listaTags(fm.ligar),
         _corpo: corpo,
       });
       const nl = nome.toLowerCase();
@@ -152,6 +160,9 @@ async function ler(fonte) {
   notas.forEach((n, i) => {
     const corpo = n._corpo;
     delete n._corpo;
+    // ligações explícitas por id (diário): o grafo resolve entre fontes
+    for (const id of n._ligar || []) links.push({ de: n.chave, para: { id }, tipo: 'LINK', peso: 0.8 });
+    delete n._ligar;
     let m;
     RE_WIKI.lastIndex = 0;
     while ((m = RE_WIKI.exec(corpo))) {
