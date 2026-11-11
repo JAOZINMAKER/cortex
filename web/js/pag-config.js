@@ -2,9 +2,10 @@
 import * as tema from './tema.js';
 import { esc, fmtN, fmtRel, fmtDataHora } from './util.js';
 import { obter, enviar } from './dados.js';
+import { blocoOneDrive, oneDrive, ligarOneDrive } from './sync.js';
 
 const pubT = s => { const u = s && s.ultimaPublicacao; return !u ? 0 : typeof u === 'object' ? (u.em || u.geradoEm || u.t || 0) : +u; };
-export const SUBS = [['geral', 'GERAL'], ['fontes', 'FONTES'], ['sync', 'SINCRONIZAÇÃO'], ['organizacao', 'ORGANIZAÇÃO'], ['aparencia', 'APARÊNCIA'], ['cerebro', 'CÉREBRO'], ['desempenho', 'DESEMPENHO'], ['notificacoes', 'NOTIFICAÇÕES'], ['dados', 'DADOS'], ['sobre', 'SOBRE']];
+export const SUBS = [['geral', 'GERAL'], ['fontes', 'FONTES'], ['sync', 'SINCRONIZAÇÃO'], ['organizacao', 'ORGANIZAÇÃO'], ['aparencia', 'APARÊNCIA'], ['cerebro', 'CÉREBRO'], ['desempenho', 'DESEMPENHO'], ['notificacoes', 'NOTIFICAÇÕES'], ['atualizacoes', 'ATUALIZAÇÕES'], ['dados', 'DADOS'], ['sobre', 'SOBRE']];
 const PADRAO = {
   geral: { idioma: 'pt', iniciarComWindows: false, fecharParaBandeja: true, atalhoGlobal: 'Ctrl+Alt+C', porta: 4747 },
   organizacao: { regrasLocais: true, claudeAtivo: false, modelo: 'claude-haiku-5-5', limitePorHora: 120 },
@@ -142,12 +143,14 @@ export class PaginaConfig {
     const nativo = !!(window.cortexApp && window.cortexApp.escolherPasta); const c = s.compartilhar || {}; const ms = s.maquinas || [];
     const st = { OK: 'OK', ANTIGO: 'ANTIGO', ERRO: 'ERRO' };
     b.innerHTML = this._sec('SINCRONIZAÇÃO', 'JUNTA OS CÉREBROS DOS SEUS PCs') +
-      `<div class="sy-guia"><div><b>1</b><span>Escolha uma pasta que já sincroniza entre seus PCs (ex.: OneDrive).</span></div><div><b>2</b><span>Faça o mesmo no outro PC.</span></div><div><b>3</b><span>Os dois cérebros se juntam.</span></div></div>` +
+      blocoOneDrive(s) +
       `<label class="cf-l sy-liga"><div><b>SINCRONIZAÇÃO ${s.ativo ? '<em class="sy-est on">● LIGADA</em>' : '<em class="sy-est">○ DESLIGADA</em>'}</b><span>${s.ativo && pubT(s) ? `PUBLICADO HÁ ${fmtRel(pubT(s))}${s.ultimaPublicacao?.neuronios != null ? ' · ' + fmtN(s.ultimaPublicacao.neuronios) + ' NEURÔNIOS' : ''}${s.ultimaPublicacao?.bytes ? ' · ' + fmtN(Math.round(s.ultimaPublicacao.bytes / 1024)) + ' KB' : ''} · ` : ''}${s.erro ? `<span class="alerta">ERRO: ${esc(s.erro)}</span>` : 'CADA PC ESCREVE SÓ NA PRÓPRIA PASTA DENTRO DE CORTEX-SYNC'}</span></div><span class="cf-c"><input type="checkbox" class="sw" data-sy-ativo ${s.ativo ? 'checked' : ''}></span></label>` +
       `<div class="sy-aviso">⚠ AO LIGAR, O CÓRTEX COPIA OS DADOS DESTE PC (NOTAS, COMMITS, SESSÕES, DIÁRIO) PARA A PASTA ESCOLHIDA. SE ELA ESTIVER NO ONEDRIVE, GOOGLE DRIVE OU DROPBOX, ESSES DADOS VÃO PARA A NUVEM DESSE SERVIÇO.</div>` +
+      `<details class="sy-av" ${oneDrive(s) ? '' : 'open'}><summary>AVANÇADO · ESCOLHER OUTRA PASTA (GOOGLE DRIVE, DROPBOX, REDE, PENDRIVE)</summary>` +
+      `<div class="sy-guia"><div><b>1</b><span>Escolha uma pasta que já sincroniza entre seus PCs (ex.: OneDrive).</span></div><div><b>2</b><span>Faça o mesmo no outro PC.</span></div><div><b>3</b><span>Os dois cérebros se juntam.</span></div></div>` +
       this._grupo('PASTA DE SINCRONIZAÇÃO') + `<div class="cf-pasta"><input class="pv-in" data-sy-pasta value="${esc(s.pasta || '')}" placeholder="C:\\Users\\jaozin\\OneDrive"><button type="button" data-sy-escolher>${nativo ? 'ESCOLHER PASTA…' : 'USAR ESTE CAMINHO'}</button></div>` +
       `${(s.sugestoes || []).length ? `<div class="sy-sug"><span>DETECTADAS NESTE PC:</span>${s.sugestoes.map(x => `<button type="button" class="chip" data-sy-sug="${esc(x.caminho)}"><b>${esc(x.rotulo)}</b> ${esc(x.caminho)}</button>`).join('')}</div>` : '<div class="pg-nota">NENHUMA PASTA DE NUVEM DETECTADA. QUALQUER PASTA SERVE: REDE, PENDRIVE OU UMA PASTA QUE VOCÊ COPIA À MÃO.</div>'}` +
-      `<div class="pg-nota">O CÓRTEX CRIA <code>${esc((s.pasta || '<PASTA>') + (/[\\/]$/.test(s.pasta || '') ? '' : (String(s.pasta || '').includes(String.fromCharCode(92)) ? String.fromCharCode(92) : '/')) + 'CORTEX-SYNC')}</code> DENTRO DELA.</div>` +
+      `<div class="pg-nota">O CÓRTEX CRIA <code>${esc((s.pasta || '<PASTA>') + (/[\\/]$/.test(s.pasta || '') ? '' : (String(s.pasta || '').includes(String.fromCharCode(92)) ? String.fromCharCode(92) : '/')) + 'CORTEX-SYNC')}</code> DENTRO DELA.</div>` + `</details>` +
       this._grupo('ESTE PC') + `<label class="cf-l"><div><b>NOME DESTE PC</b><span>APARECE NOS NEURÔNIOS COMO "DE: …" NOS OUTROS PCs · ID ${esc(String(s.maquina?.id || '').slice(0, 8))}</span></div><span class="cf-c"><input class="pv-in" data-sy-nome value="${esc(s.maquina?.nome || '')}" maxlength="40"></span></label>` +
       `<label class="cf-l"><div><b>INTERVALO</b><span>PUBLICA NO MÁXIMO A CADA N MINUTOS (E LOGO APÓS RECONSTRUIR)</span></div><span class="cf-c"><input type="number" class="pv-in curto" min="1" max="120" data-sy-int value="${esc(s.intervaloMin ?? 2)}"></span></label>` +
       this._grupo('O QUE COMPARTILHAR') +
@@ -160,6 +163,7 @@ export class PaginaConfig {
       this._grupo('SEM PASTA EM COMUM? PACOTE AVULSO') + `<div class="pg-nota" style="margin-top:0">GERE UM ARQUIVO <code>.cortexpack</code> AQUI, LEVE PARA O OUTRO PC (PENDRIVE, E-MAIL) E IMPORTE LÁ.</div>` +
       `<div class="sy-pac"><input class="pv-in" data-sy-exp placeholder="C:\\Users\\jaozin\\Desktop\\${esc((s.maquina?.nome || 'meu-pc').toLowerCase())}.cortexpack"><button data-sy-exportar>EXPORTAR PACOTE</button><input class="pv-in" data-sy-imp placeholder="CAMINHO DO .cortexpack DO OUTRO PC"><button data-sy-importar>IMPORTAR PACOTE</button></div><div class="cf-msg" data-msg></div>`;
     const msg = t => { b.querySelector('[data-msg]').innerHTML = t; };
+    ligarOneDrive(b, S, () => { this._syncLido = false; this._sync(b); });
     const enviarSync = async (o, okTxt) => { try { const r = await enviar('/api/sync', o); S.atualizar(r && r.maquinas ? r : await obter('/api/sync')); if (okTxt) msg(`<span class="maquina-c">${okTxt}</span>`); } catch (e) { msg(`<span class="alerta">${esc(e.corpo?.erro || e.message)}</span>`); } };
     b.querySelector('[data-sy-ativo]').onchange = ev => { const p = b.querySelector('[data-sy-pasta]').value.trim(); if (ev.target.checked && !p && !s.pasta) { ev.target.checked = false; msg('<span class="alerta">ESCOLHA UMA PASTA PRIMEIRO.</span>'); return; } enviarSync({ ativo: ev.target.checked, ...(p && p !== s.pasta ? { pasta: p } : {}) }, ev.target.checked ? 'SINCRONIZAÇÃO LIGADA. FAÇA O MESMO NO OUTRO PC.' : 'SINCRONIZAÇÃO DESLIGADA.'); };
     const usarPasta = p => { if (!p) return; b.querySelector('[data-sy-pasta]').value = p; enviarSync({ pasta: p }, 'PASTA DEFINIDA: ' + esc(p) + (s.ativo ? '' : ' · AGORA LIGUE A SINCRONIZAÇÃO')); };
@@ -175,6 +179,25 @@ export class PaginaConfig {
     b.querySelector('[data-sy-exportar]').onclick = async () => { const p = b.querySelector('[data-sy-exp]').value.trim() || b.querySelector('[data-sy-exp]').placeholder; msg('EXPORTANDO…'); try { const r = await enviar('/api/sync/exportar', { caminho: p }); msg(`<span class="maquina-c">PACOTE GRAVADO: ${esc(r.caminho || p)}${r.bytes ? ' · ' + fmtN(Math.round(r.bytes / 1024)) + ' KB' : ''}</span>`); } catch (e) { msg(`<span class="alerta">${esc(e.corpo?.erro || e.message)}</span>`); } };
     b.querySelector('[data-sy-importar]').onclick = async () => { const p = b.querySelector('[data-sy-imp]').value.trim(); if (!p) { msg('<span class="alerta">COLE O CAMINHO DO PACOTE.</span>'); return; } msg('IMPORTANDO…'); try { const r = await enviar('/api/sync/importar', { caminho: p }); msg(`<span class="maquina-c">IMPORTADO${r.maquina ? ': ' + esc(r.maquina.nome || r.maquina) : ''}. O CÉREBRO SE REDESENHA SOZINHO.</span>`); this._syncLido = false; setTimeout(() => this._sync(b), 1200); } catch (e) { msg(`<span class="alerta">${esc(e.corpo?.erro || e.message)}</span>`); } };
     if (this._focoExportar) { this._focoExportar = false; b.querySelector('[data-sy-exp]').focus(); b.querySelector('[data-sy-exp]').scrollIntoView({ block: 'center' }); }
+  }
+  async _atualizacoes(b) {
+    const A = this.app.atualizacao; const noApp = A && A.disponivelNoApp;
+    let st = this.status || {}; try { st = await obter('/api/status'); } catch {}
+    if (!noApp) { b.innerHTML = this._sec('ATUALIZAÇÕES', 'O APP SE ATUALIZA SOZINHO') + `<div class="at-top at-solo"><div class="at-ver"><span>VERSÃO</span><b>${esc(st.versaoApp || '—')}</b></div></div><div class="pg-nota">VOCÊ ESTÁ NO NAVEGADOR. AS ATUALIZAÇÕES AUTOMÁTICAS APARECEM AQUI QUANDO O CÓRTEX É ABERTO PELO APP (CORTEX.EXE).</div>`; return; }
+    const e = A.e || await A.ler() || {}; const nova = A.versaoNova();
+    const ult = e.ultimaVerificacao || e.verificadoEm || e.ultimaChecagem;
+    const fontes = (e.fontes || []).map(f => typeof f === 'string' ? { nome: f } : f);
+    const estado = e.erro ? ['ERRO', 'alerta', esc(e.erro)] : e.pronta ? ['PRONTA PARA INSTALAR', 'pronta', `A ${esc(nova)} JÁ FOI BAIXADA. REINICIE QUANDO QUISER.`] : e.baixando ? ['BAIXANDO', 'baixando', `${esc(nova || '')}${e.progresso != null ? ' · ' + Math.round(e.progresso * (e.progresso <= 1 ? 100 : 1)) + '%' : ''}`] : e.verificando ? ['VERIFICANDO…', 'baixando', ''] : nova ? ['DISPONÍVEL', 'pronta', esc(nova)] : ['ATUALIZADO', 'ok', 'NENHUMA VERSÃO NOVA'];
+    const origem = f => { const t = String(f.tipo || f.nome || f.origem || '').toLowerCase(); return /onedrive/.test(t) ? 'ONEDRIVE' : /github/.test(t) ? 'GITHUB' : String(f.nome || f.tipo || '—').toUpperCase(); };
+    const fUsada = fontes.find(f => f.usada || f.ativa || f.escolhida) || (e.origem ? { nome: e.origem } : null);
+    b.innerHTML = this._sec('ATUALIZAÇÕES', 'O APP SE ATUALIZA SOZINHO, SEM INSTALAR NADA DE NOVO') +
+      `<div class="at-top"><div class="at-ver"><span>VERSÃO ATUAL</span><b>${esc(e.versaoAtual || st.versaoApp || '—')}</b></div><div class="at-st ${estado[1]}"><span>ESTADO</span><b>${estado[0]}</b><em>${estado[2]}</em></div>
+        <div class="at-o"><span>ÚLTIMA VERIFICAÇÃO</span><b>${ult ? fmtDataHora(ult) : '—'}</b><em>${ult ? 'HÁ ' + fmtRel(ult) : ''}</em></div><div class="at-o"><span>ORIGEM</span><b>${fUsada ? origem(fUsada) : fontes.length ? fontes.map(origem).join(' + ') : '—'}</b><em>${fUsada?.caminho || fUsada?.url ? esc(fUsada.caminho || fUsada.url) : ''}</em></div></div>
+      <div class="at-acoes"><button class="btn-acao" data-verificar ${e.verificando || e.baixando ? 'disabled' : ''}>${e.verificando ? 'VERIFICANDO…' : 'VERIFICAR AGORA'}</button>${e.pronta ? `<button class="btn-exec" data-reiniciar>REINICIAR AGORA · ${esc(nova)}</button>` : ''}</div>
+      <div class="at-expl"><b>BASTA UM PC RECEBER A VERSÃO NOVA; OS OUTROS SE ATUALIZAM PELO ONEDRIVE.</b><span>QUEM BAIXA PRIMEIRO (DO GITHUB OU DE UM ZIP) DEIXA A VERSÃO NA PASTA DO ONEDRIVE. OS OUTROS PCs PEGAM DE LÁ E SE ATUALIZAM SOZINHOS NA PRÓXIMA VEZ QUE ABRIREM.</span></div>` +
+      this._grupo(`FONTES DE ATUALIZAÇÃO · ${fontes.length}`) + `<div class="tb-lista"><div class="tbl h at4"><span>ORIGEM</span><span>ONDE</span><span>VERSÃO LÁ</span><span>STATUS</span></div>${fontes.map(f => `<div class="tbl at4"><span class="b">${origem(f)}</span><span class="c" title="${esc(f.caminho || f.url || '')}">${esc(f.caminho || f.url || '—')}</span><span>${esc(f.versao || '—')}</span><span class="s ${f.erro ? 'ERRO' : 'OK'}">${f.erro ? esc(f.erro) : f.usada || f.ativa ? 'EM USO' : f.ok === false ? 'INDISPONÍVEL' : 'OK'}</span></div>`).join('') || '<div class="tbl"><span class="apagado">NENHUMA FONTE INFORMADA PELO APP</span></div>'}</div>`;
+    b.querySelector('[data-verificar]').onclick = () => A.verificar();
+    const rb = b.querySelector('[data-reiniciar]'); if (rb) rb.onclick = () => { rb.textContent = 'REINICIANDO…'; try { window.cortexApp.atualizacao.reiniciarAgora(); } catch {} };
   }
   _dados(b) {
     const s = this.status || {}; const dir = this.caminhos?.dadosDir || s.dadosDir || this.extra?.sobre?.dados || '';

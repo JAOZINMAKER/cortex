@@ -543,3 +543,37 @@ body.cerebro-vazio #log, body.cerebro-vazio #direita, body.cerebro-vazio .visao-
 .pj-pcs { display: flex; flex-wrap: wrap; gap: 10px; padding: 5px 14px; border-top: 1px solid var(--grade); font-size: 8.5px; letter-spacing: .08em; color: var(--maquina); }
 .sy-sug .chip { text-transform: none; } .sy-est { font-style: normal; font-size: 10px; margin-left: 10px; padding: 1px 6px; border: 1px solid var(--linha); color: var(--cinza); letter-spacing: .1em; } .sy-est.on { color: var(--fundo); background: var(--maquina); border-color: var(--maquina); }
 .tb-sync .min { text-transform: none; font-style: normal; }
+
+/* =================================================================== V5.1: OneDrive em 1 clique, atualizações */
+.od { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; border: 2px solid var(--texto); margin: 18px 0 10px; background: var(--fundo); }
+.od-btn { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px 20px; background: var(--acento); color: var(--fundo); border: 0; text-align: left; cursor: pointer; }
+.od-btn:hover { filter: brightness(1.08); } .od-btn:disabled { filter: grayscale(.6); cursor: default; }
+.od-btn b { font-size: 34px; line-height: 32px; font-weight: 800; font-stretch: 75%; letter-spacing: .01em; }
+.od-btn > span:not(.od-ic) { font-size: 9px; letter-spacing: .1em; } .od-btn code { background: var(--fundo); color: var(--texto); padding: 0 4px; text-transform: none; }
+.od-ic { font-size: 14px; }
+.od-t { padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; justify-content: center; }
+.od-t > span { font-size: 12px; line-height: 18px; font-stretch: 100%; } .od-t em { font-style: normal; font-size: 9.5px; color: var(--cinza); letter-spacing: .06em; }
+.od-t b { font-size: 26px; line-height: 26px; font-weight: 800; font-stretch: 75%; } .od-t b i { font-style: normal; text-transform: none; }
+.od-conta { font-size: 9px; letter-spacing: .1em; color: var(--cinza); border-top: 1px solid var(--grade); padding-top: 8px; } .od-conta b { font-size: inherit; line-height: inherit; color: var(--texto); font-stretch: inherit; }
+.od-ok { grid-template-columns: 70px 1fr; border-color: var(--maquina); } .od-ok > .od-ic { display: grid; place-items: center; background: var(--maquina); color: var(--fundo); font-size: 26px; }
+.od-ok .od-t b { color: var(--maquina); }
+.od-sem { grid-template-columns: 1fr; border-color: var(--linha); } .od-sem .od-t b { font-size: 18px; color: var(--cinza); }
+.boas-vindas .od { margin: 0 0 14px; }
+.sy-av { border: 1px solid var(--linha); margin: 16px 0 6px; padding: 0 14px 12px; }
+.sy-av summary { cursor: pointer; padding: 10px 0; font-size: 9.5px; letter-spacing: .14em; color: var(--cinza); list-style: none; } .sy-av summary::before { content: "▸ "; } .sy-av[open] summary::before { content: "▾ "; } .sy-av summary:hover { color: var(--texto); }
+.sy-av .sy-guia { margin-top: 0; }
+.faixa-atual { position: fixed; top: var(--tb); left: var(--sb); right: 0; height: 28px; z-index: 78; display: flex; align-items: stretch; background: var(--painel); border-bottom: 1px solid var(--maquina); font-size: 9.5px; letter-spacing: .1em; }
+.faixa-atual[hidden] { display: none !important; }
+.faixa-atual > * { display: flex; align-items: center; padding: 0 12px; } .faixa-atual .fa-ic { color: var(--maquina); padding-right: 0; } .faixa-atual b { color: var(--texto); } .faixa-atual .fa-t { color: var(--cinza); flex: 1; }
+.faixa-atual button { border: 0; border-left: 1px solid var(--linha); background: transparent; font-size: 9.5px; padding: 0 14px; } .faixa-atual [data-reiniciar] { background: var(--maquina); color: var(--fundo); font-weight: 800; } .faixa-atual .fa-x { color: var(--cinza); }
+body.com-faixa .sec { top: calc(var(--tb) + 28px); }
+.at-top { display: grid; grid-template-columns: 1fr 1.3fr 1fr 1fr; border: 1px solid var(--linha); margin-top: 18px; }
+.at-top > div { padding: 12px 14px; border-right: 1px solid var(--grade); display: flex; flex-direction: column; gap: 3px; min-width: 0; } .at-top > div:last-child { border-right: 0; }
+.at-top span { font-size: 8px; letter-spacing: .14em; color: var(--cinza); } .at-top b { font-size: 30px; line-height: 32px; font-weight: 800; font-stretch: 75%; } .at-top em { font-style: normal; font-size: 9px; color: var(--cinza); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.at-ver b { color: var(--acento); font-size: 44px; line-height: 44px; } .at-ver { margin-top: 0; }
+.at-st.pronta b { color: var(--maquina); } .at-st.alerta b { color: var(--alerta); } .at-st.baixando b { color: var(--texto); } .at-st.ok b { color: var(--texto); }
+.at-acoes { display: flex; gap: 6px; margin: 12px 0; } .at-acoes button { padding: 8px 14px; }
+.at-expl { border-left: 3px solid var(--maquina); padding: 10px 14px; background: var(--painel); display: flex; flex-direction: column; gap: 6px; } .at-expl b { font-size: 12px; letter-spacing: .04em; } .at-expl span { font-size: 9.5px; color: var(--cinza); letter-spacing: .06em; line-height: 15px; }
+.tbl.at4 { grid-template-columns: 110px 1fr 110px 120px; }
+.od-btn code { display: inline-block; margin-top: 2px; word-break: break-all; }
+.at-top.at-solo { grid-template-columns: 260px; }

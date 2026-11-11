@@ -134,6 +134,8 @@ export class Comando {
       ...a.visoes.salvas.filter(v => v.id !== 'tudo').map(v => ['visao ' + v.id + ' ' + v.nome.toLowerCase(), 'VISÃO SALVA: ' + v.nome + (a.visoes.atual.id === v.id ? ' (ATUAL)' : ''), 'APLICAR', () => a.visoes.aplicar(v)]),
       ...a.visoes.projetos.map(p => ['projeto ' + String(p.nome).toLowerCase(), 'ISOLAR PROJETO ' + String(p.nome).toUpperCase(), fmtN(p.neuronios) + ' NEURÔNIOS', () => a.visoes.isolarProjeto(p.nome)]),
       ['ajustes', 'AJUSTES DA INTERFACE', 'TECLA A', () => a.ajustes.alternar(true)],
+      ['atualizacoes atualizar versao update', 'ATUALIZAÇÕES · VERSÃO DO APP', 'CONFIGURAÇÕES › ATUALIZAÇÕES', () => a.shell.ir('#/config/atualizacoes')],
+      ...(a.atualizacao?.disponivelNoApp ? [['verificar atualizacao agora', 'VERIFICAR ATUALIZAÇÃO AGORA', 'BAIXA SE HOUVER', () => a.atualizacao.verificar()]] : []),
       ['sincronizar sync pcs outro pc', 'SINCRONIZAR COM OUTRO PC', 'CONFIGURAÇÕES › SINCRONIZAÇÃO', () => a.shell.ir('#/config/sync')],
       ['sync agora sincronizar agora', 'SYNC AGORA · PUBLICAR E RELER', a.sync.s?.ativo ? 'PASTA ' + (a.sync.s.pasta || '') : 'SINCRONIZAÇÃO DESLIGADA', () => a.sync.agora()],
       ['exportar pacote cortexpack sync', 'EXPORTAR PACOTE .cortexpack', 'PARA LEVAR A OUTRO PC', () => { a.shell.ir('#/config/sync'); const t0 = Date.now(); const f = () => { const i = document.querySelector('[data-sy-exp]'); if (i && document.activeElement !== i) { i.scrollIntoView({ block: 'center' }); i.focus(); } if (Date.now() - t0 < 1500) setTimeout(f, 250); }; setTimeout(f, 300); }],

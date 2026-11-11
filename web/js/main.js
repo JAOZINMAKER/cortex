@@ -11,6 +11,7 @@ import { Visoes, TUDO, vazia } from './visao.js';
 import { Ajustes } from './ajustes.js';
 import { Shell } from './shell.js';
 import { Sync } from './sync.js';
+import { Atualizacao } from './atualizacao.js';
 import { tela, $, el, esc, fmtN, fmtK, fmtData, fmtMs, fmtRel, clamp, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
 
 const DIA = 864e5;
@@ -57,7 +58,7 @@ class Replay {
 class App {
   constructor() {
     this.cerebro = new Cerebro($('#gl')); this.rotulos = new Rotulos(this.cerebro, $('#rotulos'), $('#anel')); this.rotulos.app0 = this; this.hud = new Hud(this.cerebro);
-    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this); this.shell = new Shell(this); this.sync = new Sync(this); this.notif = { registroDiario: true, commitNovo: true, sessaoNova: false }; this.fpsMax = 60;
+    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this); this.shell = new Shell(this); this.sync = new Sync(this); this.atualizacao = new Atualizacao(this); this.notif = { registroDiario: true, commitNovo: true, sessaoNova: false }; this.fpsMax = 60;
     this.modo = null; this.carregando = true; this.ultEvento = 0; this.evts = []; this.ws = null;
     this.sobre = [{ id: 'calor', nome: 'CALOR DE ATIVIDADE', tecla: 1 }, { id: 'idade', nome: 'IDADE DAS NOTAS', tecla: 2 }, { id: 'cluster', nome: 'CLUSTERS POR TEMA', tecla: 3 }, { id: 'caminho', nome: 'CAMINHO MAIS CURTO', tecla: 4 }, { id: 'orfaos', nome: 'ÓRFÃOS SEM LIGAÇÃO', tecla: 5 }];
     this._sobreUI(); this._entrada();
