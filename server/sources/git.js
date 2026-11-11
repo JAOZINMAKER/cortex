@@ -151,7 +151,7 @@ async function ler(fonte) {
       criado: c.at, modificado: c.ct, palavras: c.mais + c.menos, autor: autorCanonico(c.an, c.ae),
       hash: c.sha.slice(0, 12), caminho: repo,
       texto: c.s + ' ' + c.arquivos.slice(0, 30).map((f) => f.p).join(' '),
-      extra: { sha: c.sha, pais: c.pais, mais: c.mais, menos: c.menos, refs: c.refs, autorNome: c.an,
+      extra: { sha: c.sha, fonteRef: nomeRef(c.fonteRef), pais: c.pais, mais: c.mais, menos: c.menos, refs: c.refs, autorNome: c.an,
         arquivos: c.arquivos.slice(0, 300), nArquivos: c.arquivos.length },
     });
     for (const p of c.pais) if (shaSet.has(p)) links.push({ de: k, para: chaveCommit(p), tipo: 'PAI', peso: 0.8 });
@@ -189,7 +189,8 @@ async function ler(fonte) {
     const t = c ? c.ct : Date.now();
     nos.push({ chave: k, tipo: 'worktree', fonte: 'git', titulo: path.basename(w.caminho) + (w.branch ? ' @ ' + nomeRef(w.branch) : ''),
       subregiao: 'BRANCHES', criado: t, modificado: t, palavras: 0, autor: 'GIT', hash: (w.head || '').slice(0, 12), caminho: w.caminho,
-      texto: 'worktree ' + w.caminho, extra: { branch: w.branch, head: w.head } });
+      // texto só com nomes relativos: o caminho absoluto (ex.: /home/x/testdata) viraria tag de ruído
+      texto: 'worktree ' + path.basename(w.caminho) + (w.branch ? ' ' + nomeRef(w.branch) : ''), extra: { branch: w.branch, head: w.head } });
     if (shaSet.has(w.head)) links.push({ de: k, para: chaveCommit(w.head), tipo: 'BRANCH', peso: 0.9 });
   }
 

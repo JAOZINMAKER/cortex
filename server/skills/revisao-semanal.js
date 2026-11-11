@@ -9,7 +9,19 @@ async function executar(G, params = {}, ctx = {}) {
   const d = resumo.dados(G, { projeto: proj.nome, dias });
   const desde = d.desde;
   const nos = nosDo(G, proj);
-  const noPeriodo = nos.filter((n) => n.modificado >= desde);
+  // ignorarTeste: tira sessões e notas com "teste" no título (o resto, como commits, fica)
+  const ignorarTeste = params.ignorarTeste === true || params.ignorarTeste === 'true';
+  const ehTeste = (n) => ignorarTeste && (n.tipo === 'sessao' || n.tipo === 'nota' || n.tipo === 'doc') && /teste/i.test(n.titulo || '');
+  const tirados = { sessoes: 0, notas: 0 };
+  const noPeriodo = nos.filter((n) => {
+    if (n.modificado < desde) return false;
+    if (ehTeste(n)) { if (n.tipo === 'sessao') tirados.sessoes++; else tirados.notas++; return false; }
+    return true;
+  });
+  const idsTirados = new Set(nos.filter(ehTeste).map((n) => n.id));
+  d.mudados.itens = d.mudados.itens.filter((x) => !idsTirados.has(x.id));
+  d.mudados.total = Math.max(0, d.mudados.total - nos.filter((n) => idsTirados.has(n.id) && (n.tipo === 'nota' || n.tipo === 'doc') && n.fonte !== 'diario' && n.modificado >= desde).length);
+  d.diario.itens = d.diario.itens.filter((x) => !idsTirados.has(x.id));
   const commits = noPeriodo.filter((n) => n.tipo === 'commit').sort((a, b) => a.criado - b.criado);
   const sessoes = noPeriodo.filter((n) => n.tipo === 'sessao').sort((a, b) => a.criado - b.criado);
 
@@ -26,6 +38,7 @@ async function executar(G, params = {}, ctx = {}) {
   const c = d.contadores;
   const ini = data(desde), fim = data(Date.now());
   const L = [`# Revisão semanal · ${proj.nome.toUpperCase()} · ${ini} a ${fim}`, ''];
+  if (ignorarTeste) L.push(`_Ignorando itens de teste: ${tirados.sessoes} sessões e ${tirados.notas} notas com "teste" no título ficaram de fora._`, '');
   L.push(`**Números:** ${commits.length} commits (+${commits.reduce((a, x) => a + x.extra.mais, 0)}/-${commits.reduce((a, x) => a + x.extra.menos, 0)}) · ${sessoes.filter((s) => !ehAgente(s)).length} sessões + ${sessoes.filter(ehAgente).length} agentes · ${dur(sessoes.reduce((a, s) => a + (s.extra.duracaoMs || 0), 0))} de IA · ${c.mudaramNoPeriodo} neurônios mudaram · ${d.diario.itens.filter((x) => x.criado >= desde).length} registros no diário`);
   if (porDia.size) L.push(`**IA por dia:** ${[...porDia.entries()].sort().map(([k, v]) => `${k.slice(5)} ${dur(v)}`).join(' · ')}`);
   if (autores.size) L.push(`**Autores dos commits:** ${[...autores.entries()].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ×${v}`).join(' · ')}`);
@@ -60,7 +73,7 @@ async function executar(G, params = {}, ctx = {}) {
     commits: commits.map((x) => ({ id: x.id, idCurto: x.idCurto, hash: x.hash.slice(0, 7), titulo: x.titulo, criado: Math.round(x.criado) })),
     sessoes: sessoes.map((s) => ({ id: s.id, idCurto: s.idCurto, titulo: s.titulo, agente: ehAgente(s), duracaoMs: s.extra.duracaoMs || 0, criado: Math.round(s.criado) })),
     iaPorDia: Object.fromEntries([...porDia.entries()].sort()), atividadePorSubregiao: Object.fromEntries([...porSub.entries()].sort((a, b) => b[1] - a[1])),
-    sugestoes: sug,
+    sugestoes: sug, ignorarTeste, tirados,
   };
   let registradoEm;
   if (params.gravar && ctx.registrar) {
