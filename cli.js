@@ -51,6 +51,8 @@ function tempo(v) {
 
 // ---------- saída ----------
 let MODO_JSON = false;
+// saída cortada por "| head" não é erro
+process.stdout.on('error', (e) => { if (e.code === 'EPIPE') process.exit(0); throw e; });
 function out(s = '') { process.stdout.write(s + '\n'); }
 function falhar(msg, cod = 1) {
   if (MODO_JSON) process.stdout.write(JSON.stringify({ erro: msg }) + '\n');
@@ -308,8 +310,10 @@ C.abrir = async (pos, op) => {
   if (alvo || ['fontes', 'tipos', 'tags', 'desde', 'texto'].some((k) => op[k] !== undefined)) {
     await garantir();
     const v = await resolverVisao(alvo, op);
-    await api('POST', '/api/visao/atual', v.salva ? { id: v.id } : v);
-    url += '?visao=' + encodeURIComponent(v.id) + (v.projetos ? '&projetos=' + encodeURIComponent(v.projetos.join(',')) : '');
+    // a visão atual vale para toda janela que abrir; o parâmetro na URL é só um reforço
+    const r = await api('POST', '/api/visao/atual', v.salva ? { id: v.id } : v);
+    const id = (r.json && r.json.visao && r.json.visao.id) || v.id;
+    url += '?visao=' + encodeURIComponent(id) + (v.projetos ? '&projetos=' + encodeURIComponent(v.projetos.join(',')) : '');
     if (!MODO_JSON) out(`visão: ${v.nome}`);
   }
   abrirNavegador(url);
