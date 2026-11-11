@@ -18,7 +18,8 @@ const { readJSON, writeJSON, slug } = require('./util');
 
 const gzip = promisify(zlib.gzip);
 const gunzip = promisify(zlib.gunzip);
-const FORMATO = 1;
+const FORMATO = 1; // pacote único (.cortexpack e versão anterior)
+const FORMATO_PARTE = 2; // manifesto + uma parte por fonte
 const MAX_CONTEUDO = 200 * 1024;
 const ANTIGO_MS = 14 * 864e5;
 const TIPOS_SIN = ['LINK', 'EMBED', 'PAI', 'TOCA', 'SEQ', 'DIA', 'BRANCH', 'TAG'];
@@ -29,7 +30,7 @@ let maq = null;
 const remotos = new Map(); // id -> { id, nome, origem, dir, arquivo, mtimeMs, size, status, erro, geradoEm, manifesto, pacote, parcial }
 let watcher = null;
 let timerPub = null, timerRetry = null, timerVarredura = null;
-let ultimaPublicacao = null, ultimoHashLocal = null, publicando = null, erro = null;
+let ultimaPublicacao = null, publicando = null, erro = null;
 
 // ------------------------------------------------------------ identidade e config
 function maquina() {
@@ -82,13 +83,8 @@ function sugestoes() {
 }
 
 // ------------------------------------------------------------ pacote: montar e publicar
-function hashLocal(G) {
-  const h = crypto.createHash('sha1');
-  for (const n of G.interno.nos) if (n._origemLocal) { const b = n._local || n; h.update(n.id + (b.hash || '') + (b.modificado || 0) + '|'); }
-  h.update(':' + G.interno.sinapsesLocais.length + JSON.stringify(cfg().compartilhar) + maquina().nome);
-  return h.digest('hex');
-}
-
+// V5.1: um arquivo por fonte local (maquinas/<id>/<fonteId>.json.gz) + manifesto com o hash de cada parte.
+// Só a parte cujo conteúdo mudou é reescrita (uma sessão ativa troca só o pacote pequeno das sessões).
 function compartilha(n, comp) {
   if (n.tipo === 'dia') return false;
   if (n.fonte === 'diario') return comp.diario;
@@ -107,59 +103,124 @@ const EXTRA_OK = {
   branch: ['ref', 'sha'], worktree: ['branch', 'head'],
 };
 
-async function montarPacote(G) {
+const nomeArquivoParte = (fonteId) => slug(fonteId) + '.json.gz';
+
+// grupos por fonte local: { fonteId -> { idxs: [índices de nós], arestas: [índices de sinapses] } }
+function grupos(G) {
   const comp = cfg().compartilhar;
   const I = G.interno;
-  const nos = [];
-  const idx = new Map(); // índice interno -> índice no pacote
-  const conteudos = {};
-  const leituras = [];
+  const g = new Map();
+  const de = new Map(); // índice do nó -> fonteId
   I.nos.forEach((n, i) => {
     if (!n._origemLocal || !compartilha(n, comp)) return;
-    const b = n._local ? { ...n, ...n._local } : n; // versão local (nunca a que veio de outra máquina)
-    const extra = {};
-    for (const k of EXTRA_OK[n.tipo] || []) if (b.extra && b.extra[k] !== undefined) extra[k] = b.extra[k];
-    if (n.tipo === 'commit' && b.extra && b.extra.arquivos) extra.arquivos = b.extra.arquivos.slice(0, 40);
-    if (n.tipo === 'sessao' && b.extra) extra.arquivos = (b.extra.arquivos || []).slice(-100);
-    const semConteudo = n.tipo === 'nota' && n.fonte !== 'diario' && comp.notas === 'metadados';
-    const x = {
-      chave: n.chave, tipo: n.tipo, fonte: n.fonte, titulo: b.titulo, projeto: I.nomeProj.get(n.projeto) || n.projeto, subregiao: n.subregiao,
-      criado: Math.round(b.criado), modificado: Math.round(b.modificado), palavras: b.palavras, autor: b.autor, hash: b.hash, caminho: b.caminho || null, extra,
-    };
-    if (b.tagsAutor && b.tagsAutor.length) x.tagsAutor = b.tagsAutor;
-    if (n.worktrees && n.worktrees.length) x.worktrees = n.worktrees;
-    if (n.tipo === 'sessao' && b._eventos) x.eventos = b._eventos.slice(-200).map((e) => [e.t, e.ferramenta, e.arquivo ? path.basename(e.arquivo) : null]);
-    if ((n.tipo === 'nota' || n.tipo === 'doc') && !semConteudo && b.caminho) {
-      leituras.push(fs.promises.readFile(b.caminho, 'utf8').then((t) => {
-        conteudos[n.chave] = t.length > MAX_CONTEUDO ? t.slice(0, MAX_CONTEUDO) + '\n\n…(cortado em 200 KB)' : t;
-      }).catch(() => { x.texto = (b.texto || '').slice(0, 4000); }));
-    } else if (!semConteudo) x.texto = (b.texto || '').slice(0, 4000);
-    idx.set(i, nos.length);
-    nos.push(x);
+    const f = n._fonteId || 'local';
+    if (!g.has(f)) g.set(f, { idxs: [], arestas: [] });
+    g.get(f).idxs.push(i);
+    de.set(i, f);
   });
-  await Promise.all(leituras);
-  const sinapses = [];
-  for (const e of I.sinapsesLocais) {
+  for (const [e, f] of I.sinapsesLocais) {
     const s = G.publico.sinapses[e];
-    const a = idx.get(s.a), b = idx.get(s.b);
-    if (a === undefined || b === undefined) continue;
-    sinapses.push([a, b, TIPOS_SIN.indexOf(s.tipo), s.peso]);
+    if (!de.has(s.a) || !de.has(s.b)) continue;
+    const dono = g.has(f) ? f : de.get(s.a); // a sinapse vai com a fonte que a criou
+    g.get(dono).arestas.push(e);
   }
-  return { formato: FORMATO, maquina: maquina(), versaoApp: ctx.versaoApp, geradoEm: Date.now(), nos, sinapses, conteudos };
+  return g;
 }
 
-function manifestoDe(pacote) {
-  const cont = { neuronios: pacote.nos.length, notas: 0, commits: 0, sessoes: 0, diario: 0 };
-  const projetos = new Set();
-  for (const n of pacote.nos) {
-    projetos.add(n.projeto);
-    if (n.fonte === 'diario') cont.diario++;
-    else if (n.tipo === 'nota') cont.notas++;
-    else if (n.tipo === 'commit') cont.commits++;
-    else if (n.tipo === 'sessao' && !(n.extra && n.extra.agente)) cont.sessoes++;
+// hash barato do conteúdo de uma parte (antes de serializar): muda só quando algo dela muda
+function preHash(G, grupo) {
+  const I = G.interno;
+  const h = crypto.createHash('sha1');
+  h.update(JSON.stringify(cfg().compartilhar) + '|' + maquina().nome + '|' + FORMATO_PARTE);
+  for (const i of grupo.idxs) {
+    const n = I.nos[i];
+    const b = n._local ? { ...n, ...n._local } : n;
+    h.update(`${n.id}|${b.hash || ''}|${Math.round(b.modificado || 0)}|${b.titulo}|${b.palavras}|${n.subregiao}|${(n.worktrees || []).join(',')}|`);
+    if (n.tipo === 'sessao' && b.extra) h.update(`${b.extra.totalFerramentas}|${b.extra.msgsUser}|${b.extra.duracaoMs}|`);
   }
-  const fontes = config.get().fontes.map((f) => ({ tipo: f.tipo, projeto: f.projeto || null, caminho: f.caminho }));
-  return { id: pacote.maquina.id, nome: pacote.maquina.nome, versaoApp: pacote.versaoApp, geradoEm: pacote.geradoEm, contadores: cont, projetos: [...projetos].sort(), fontes };
+  for (const e of grupo.arestas) { const s = G.publico.sinapses[e]; h.update(`${I.nos[s.a].id}>${I.nos[s.b].id}${s.tipo}${s.peso};`); }
+  return h.digest('hex').slice(0, 20);
+}
+
+function noDoPacote(G, n, comp, conteudos, leituras) {
+  const I = G.interno;
+  const b = n._local ? { ...n, ...n._local } : n; // versão local (nunca a que veio de outra máquina)
+  const extra = {};
+  for (const k of EXTRA_OK[n.tipo] || []) if (b.extra && b.extra[k] !== undefined) extra[k] = b.extra[k];
+  if (n.tipo === 'commit' && b.extra && b.extra.arquivos) extra.arquivos = b.extra.arquivos.slice(0, 40);
+  if (n.tipo === 'sessao' && b.extra) extra.arquivos = (b.extra.arquivos || []).slice(-100);
+  const semConteudo = n.tipo === 'nota' && n.fonte !== 'diario' && comp.notas === 'metadados';
+  const x = {
+    chave: n.chave, tipo: n.tipo, fonte: n.fonte, titulo: b.titulo, projeto: I.nomeProj.get(n.projeto) || n.projeto, subregiao: n.subregiao,
+    criado: Math.round(b.criado), modificado: Math.round(b.modificado), palavras: b.palavras, autor: b.autor, hash: b.hash, caminho: b.caminho || null, extra,
+  };
+  if (b.tagsAutor && b.tagsAutor.length) x.tagsAutor = b.tagsAutor;
+  if (n.worktrees && n.worktrees.length) x.worktrees = n.worktrees;
+  if (n.tipo === 'sessao' && b._eventos) x.eventos = b._eventos.slice(-200).map((e) => [e.t, e.ferramenta, e.arquivo ? path.basename(e.arquivo) : null]);
+  if ((n.tipo === 'nota' || n.tipo === 'doc') && !semConteudo && b.caminho) {
+    leituras.push(fs.promises.readFile(b.caminho, 'utf8').then((t) => {
+      conteudos[n.chave] = t.length > MAX_CONTEUDO ? t.slice(0, MAX_CONTEUDO) + '\n\n…(cortado em 200 KB)' : t;
+    }).catch(() => { x.texto = (b.texto || '').slice(0, 4000); }));
+  } else if (!semConteudo) x.texto = (b.texto || '').slice(0, 4000);
+  return x;
+}
+
+// monta um pacote com os nós dos índices dados. Sinapses: [a, b, tipo, peso]; a/b = índice no pacote ou chave (nó de outra parte)
+async function montar(G, idxs, arestas) {
+  const comp = cfg().compartilhar;
+  const I = G.interno;
+  const nos = [], conteudos = {}, leituras = [];
+  const pos = new Map();
+  for (const i of idxs) { pos.set(i, nos.length); nos.push(noDoPacote(G, I.nos[i], comp, conteudos, leituras)); }
+  await Promise.all(leituras);
+  const sinapses = arestas.map((e) => {
+    const s = G.publico.sinapses[e];
+    const a = pos.has(s.a) ? pos.get(s.a) : I.nos[s.a].chave;
+    const b = pos.has(s.b) ? pos.get(s.b) : I.nos[s.b].chave;
+    return [a, b, TIPOS_SIN.indexOf(s.tipo), s.peso];
+  });
+  return { nos, sinapses, conteudos };
+}
+
+// pacote único (formato 1): .cortexpack exportado
+async function montarPacote(G) {
+  const gs = grupos(G);
+  const idxs = [], arestas = [];
+  for (const g of gs.values()) { idxs.push(...g.idxs); arestas.push(...g.arestas); }
+  const corpo = await montar(G, idxs, arestas);
+  return { formato: FORMATO, maquina: maquina(), versaoApp: ctx.versaoApp, geradoEm: Date.now(), ...corpo };
+}
+
+function fontesInfo() {
+  const m = new Map(config.get().fontes.map((f) => [f.id, f]));
+  m.set('src_diario', { id: 'src_diario', tipo: 'diario', projeto: null });
+  return m;
+}
+
+function manifestoBase(partes) {
+  const cont = { neuronios: 0, notas: 0, commits: 0, sessoes: 0, diario: 0 };
+  const projetos = new Set();
+  for (const p of partes) {
+    cont.neuronios += p.neuronios;
+    for (const k of ['notas', 'commits', 'sessoes', 'diario']) cont[k] += p.contadores[k] || 0;
+    for (const pr of p.projetos) projetos.add(pr);
+  }
+  const fontes = config.get().fontes.map((f) => ({ id: f.id, tipo: f.tipo, projeto: f.projeto || null, caminho: f.caminho }));
+  const eu = maquina();
+  return { formato: FORMATO_PARTE, id: eu.id, nome: eu.nome, versaoApp: ctx.versaoApp, geradoEm: Date.now(), contadores: cont, projetos: [...projetos].sort(), fontes, partes };
+}
+
+function contadoresParte(nos) {
+  const c = { notas: 0, commits: 0, sessoes: 0, diario: 0 };
+  const projetos = new Set();
+  for (const n of nos) {
+    projetos.add(n.projeto);
+    if (n.fonte === 'diario') c.diario++;
+    else if (n.tipo === 'nota') c.notas++;
+    else if (n.tipo === 'commit') c.commits++;
+    else if (n.tipo === 'sessao' && !(n.extra && n.extra.agente)) c.sessoes++;
+  }
+  return { c, projetos: [...projetos].sort() };
 }
 
 async function escreverAtomico(arq, dados) {
@@ -177,7 +238,9 @@ async function serializar(G) {
   return { pacote, gz, bruto: json.length, ms: Date.now() - t0 };
 }
 
-// publica na pasta de sync (se ligada). forcar: publica mesmo sem mudança local
+let partesPublicadas = new Map(); // arquivo -> entrada do manifesto já escrita
+
+// publica na pasta de sync (se ligada), só as partes que mudaram. forcar: reescreve todas
 async function publicar({ forcar = false, motivo = '' } = {}) {
   const c = cfg();
   const G = ctx && ctx.obterGrafo();
@@ -186,19 +249,49 @@ async function publicar({ forcar = false, motivo = '' } = {}) {
   publicando = (async () => {
     try {
       const t0 = Date.now();
-      const h = hashLocal(G);
-      if (!forcar && h === ultimoHashLocal) return { pulado: true };
-      const { pacote, gz, bruto, ms } = await serializar(G);
       const dir = path.join(raizSync(), 'maquinas', maquina().id);
-      await escreverAtomico(path.join(dir, 'pacote.json.gz'), gz);
-      const man = manifestoDe(pacote);
-      man.bytes = gz.length;
-      await escreverAtomico(path.join(dir, 'manifesto.json'), JSON.stringify(man, null, 2));
+      if (!partesPublicadas.size && !forcar) {
+        // reabriu o app: aproveita o manifesto que já está na pasta
+        const man = readJSON(path.join(dir, 'manifesto.json'), null);
+        if (man && man.formato === FORMATO_PARTE && Array.isArray(man.partes)) for (const p of man.partes) if (fs.existsSync(path.join(dir, p.arquivo))) partesPublicadas.set(p.arquivo, p);
+      }
+      const gs = grupos(G);
+      const info = fontesInfo();
+      const partes = [];
+      const escritas = [];
+      let bytesEscritos = 0;
+      for (const [fonteId, g] of gs) {
+        const arquivo = nomeArquivoParte(fonteId);
+        const hash = preHash(G, g);
+        const ant = partesPublicadas.get(arquivo);
+        if (!forcar && ant && ant.hash === hash) { partes.push(ant); continue; }
+        const corpo = await montar(G, g.idxs, g.arestas);
+        const f = info.get(fonteId) || { tipo: '?', projeto: null };
+        const parte = { formato: FORMATO_PARTE, maquina: maquina(), fonte: { id: fonteId, tipo: f.tipo, projeto: f.projeto || null }, hash, geradoEm: Date.now(), ...corpo };
+        const gz = await gzip(Buffer.from(JSON.stringify(parte)), { level: 6 });
+        await escreverAtomico(path.join(dir, arquivo), gz);
+        const { c: cont, projetos } = contadoresParte(corpo.nos);
+        const entrada = { arquivo, fonte: fonteId, tipo: f.tipo, projeto: f.projeto || null, hash, neuronios: corpo.nos.length, sinapses: corpo.sinapses.length, bytes: gz.length, geradoEm: parte.geradoEm, contadores: cont, projetos };
+        partes.push(entrada);
+        escritas.push(entrada);
+        bytesEscritos += gz.length;
+      }
+      // partes de fontes que sumiram (ou que deixaram de ser compartilhadas)
+      const atuais = new Set(partes.map((p) => p.arquivo));
+      let removidas = 0;
+      for (const arq of [...partesPublicadas.keys()]) if (!atuais.has(arq)) { try { fs.rmSync(path.join(dir, arq), { force: true }); } catch { /* já foi */ } removidas++; }
+      if (!escritas.length && !removidas && partesPublicadas.size && !forcar) return { pulado: true };
+      const man = manifestoBase(partes);
+      const manTxt = JSON.stringify(man, null, 2);
+      await escreverAtomico(path.join(dir, 'manifesto.json'), manTxt); // manifesto por último: quem lê nunca vê hash de parte que ainda não existe
+      try { fs.rmSync(path.join(dir, 'pacote.json.gz'), { force: true }); } catch { /* formato antigo */ }
+      partesPublicadas = new Map(partes.map((p) => [p.arquivo, p]));
       garantirLeiaMe();
-      ultimoHashLocal = h;
-      ultimaPublicacao = { em: Date.now(), neuronios: pacote.nos.length, sinapses: pacote.sinapses.length, bytes: gz.length, bytesBruto: bruto, ms: Date.now() - t0, msMontar: ms };
+      const total = partes.reduce((a, p) => a + p.bytes, 0);
+      ultimaPublicacao = { em: Date.now(), neuronios: man.contadores.neuronios, sinapses: partes.reduce((a, p) => a + p.sinapses, 0), bytes: total,
+        bytesEscritos: bytesEscritos + manTxt.length, partesEscritas: escritas.map((p) => p.arquivo), partes: partes.length, ms: Date.now() - t0 };
       erro = null;
-      ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `PUBLICADO · ${pacote.nos.length} NEURÔNIOS · ${(gz.length / 1048576).toFixed(1)} MB${motivo ? ' · ' + motivo.toUpperCase() : ''}` });
+      ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `PUBLICADO · ${escritas.length} DE ${partes.length} PARTES · ${(bytesEscritos / 1024).toFixed(0)} KB ENVIADOS${motivo ? ' · ' + motivo.toUpperCase() : ''}` });
       avisar();
       return ultimaPublicacao;
     } catch (e) {
@@ -229,7 +322,7 @@ function garantirLeiaMe() {
     fs.writeFileSync(arq, [
       'CÓRTEX · pasta de sincronização entre PCs',
       '',
-      'Cada PC com o CÓRTEX escreve só na própria pasta em maquinas/<id>/ (manifesto.json e pacote.json.gz).',
+      'Cada PC com o CÓRTEX escreve só na própria pasta em maquinas/<id>/: manifesto.json e um <fonte>.json.gz por fonte.',
       'Os outros PCs leem esses pacotes e juntam tudo no cérebro deles. Não edite os arquivos à mão.',
       'Para um PC parar de compartilhar: CONFIGURAÇÕES → SINCRONIZAÇÃO → desligar.',
       '',
@@ -248,7 +341,7 @@ function candidatos() {
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { ents = []; }
     for (const e of ents) {
       if (!e.isDirectory() || e.name === eu || c.esquecidas.includes(e.name)) continue;
-      out.push({ id: e.name, origem: 'pasta', arquivo: path.join(dir, e.name, 'pacote.json.gz'), manifesto: path.join(dir, e.name, 'manifesto.json') });
+      out.push({ id: e.name, origem: 'pasta', dir: path.join(dir, e.name), arquivo: path.join(dir, e.name, 'pacote.json.gz'), manifesto: path.join(dir, e.name, 'manifesto.json') });
     }
   }
   let imps = [];
@@ -261,47 +354,85 @@ function candidatos() {
   return out;
 }
 
-async function lerPacote(arquivo) {
+async function lerGz(arquivo) {
   const buf = await fs.promises.readFile(arquivo);
   const json = buf[0] === 0x1f && buf[1] === 0x8b ? await gunzip(buf) : buf;
-  const p = JSON.parse(json.toString('utf8'));
+  return JSON.parse(json.toString('utf8'));
+}
+
+async function lerPacote(arquivo) {
+  const p = await lerGz(arquivo);
   if (!p || p.formato !== FORMATO || !Array.isArray(p.nos) || !p.maquina || !p.maquina.id) throw new Error(`formato desconhecido (${p && p.formato})`);
   return p;
 }
 
-// relê o que mudou; devolve true se algum pacote novo entrou ou saiu.
-// forcar: tenta de novo também os que falharam com o mesmo arquivo (nova tentativa de 30 s)
+// lê uma máquina: manifesto com partes (só as de hash novo) ou pacote único (formato 1 / importado).
+// devolve { mudou, bytes, partesLidas } ou lança erro (o chamador mantém a versão boa anterior)
+async function lerMaquina(c, atual, forcar) {
+  const r = atual && atual.partes ? atual : { id: c.id, nome: c.id.slice(0, 8), origem: c.origem, dir: c.dir, arquivo: c.arquivo, partes: new Map(), status: 'ERRO' };
+  let man = null;
+  if (c.manifesto) {
+    try { man = JSON.parse(await fs.promises.readFile(c.manifesto, 'utf8')); } catch (e) { if (e.code !== 'ENOENT') throw new Error('manifesto ilegível: ' + e.message); }
+  }
+  if (man && man.formato === FORMATO_PARTE && Array.isArray(man.partes)) {
+    if (man.id === maquina().id) return { eu: true };
+    let mudou = false, bytes = 0;
+    const lidas = [];
+    const novas = new Map();
+    for (const p of man.partes) {
+      const ja = r.partes.get(p.arquivo);
+      if (ja && ja.hash === p.hash) { novas.set(p.arquivo, ja); continue; } // mesma parte: não baixa de novo
+      const arq = path.join(c.dir, p.arquivo);
+      const parte = await lerGz(arq);
+      if (!parte || parte.formato !== FORMATO_PARTE || parte.hash !== p.hash) throw new Error(`parte ${p.arquivo} ainda sincronizando (hash diferente do manifesto)`);
+      novas.set(p.arquivo, { hash: p.hash, pacote: parte, parcial: null, bytes: p.bytes });
+      bytes += p.bytes || 0;
+      lidas.push(p.arquivo);
+      mudou = true;
+    }
+    if (novas.size !== r.partes.size || [...r.partes.keys()].some((k) => !novas.has(k))) mudou = true;
+    Object.assign(r, { nome: man.nome || r.nome, partes: novas, geradoEm: man.geradoEm, versaoApp: man.versaoApp, status: Date.now() - man.geradoEm > ANTIGO_MS ? 'ANTIGO' : 'OK', formato: FORMATO_PARTE });
+    delete r.erro;
+    return { r, mudou, bytes, lidas };
+  }
+  // formato 1: pacote único (versão anterior do app, ou .cortexpack importado)
+  const st = await fs.promises.stat(c.arquivo).catch(() => null);
+  if (!st) throw Object.assign(new Error('sem pacote ainda'), { semPacote: true });
+  const ja = r.partes.get('pacote');
+  if (ja && ja.mtimeMs === st.mtimeMs && ja.size === st.size) return { r, mudou: false, bytes: 0, lidas: [] };
+  const p = await lerPacote(c.arquivo);
+  if (p.maquina.id === maquina().id) return { eu: true };
+  r.partes = new Map([['pacote', { hash: String(st.mtimeMs) + ':' + st.size, mtimeMs: st.mtimeMs, size: st.size, pacote: p, parcial: null, bytes: st.size }]]);
+  Object.assign(r, { nome: p.maquina.nome || r.nome, geradoEm: p.geradoEm, versaoApp: p.versaoApp, status: Date.now() - p.geradoEm > ANTIGO_MS ? 'ANTIGO' : 'OK', formato: FORMATO });
+  delete r.erro;
+  return { r, mudou: true, bytes: st.size, lidas: ['pacote'] };
+}
+
+// relê o que mudou; devolve true se algo entrou ou saiu. forcar: relê tudo (inclusive o que falhou antes)
 async function lerRemotos(forcar = false) {
   const cands = candidatos();
-  let mudou = false;
-  let falhou = false;
+  let mudou = false, falhou = false;
   const vistos = new Set();
   for (const c of cands) {
     vistos.add(c.id);
-    let st;
-    try { st = await fs.promises.stat(c.arquivo); } catch { st = null; }
     const atual = remotos.get(c.id);
-    if (!st) {
-      if (!atual) remotos.set(c.id, { id: c.id, nome: c.id.slice(0, 8), origem: c.origem, arquivo: c.arquivo, status: 'ERRO', erro: 'sem pacote ainda', pacote: null });
-      continue;
-    }
-    const mesmo = (m, z) => m === st.mtimeMs && z === st.size;
-    if (atual && atual.pacote && mesmo(atual.mtimeMs, atual.size)) continue; // nada novo
-    if (!forcar && atual && atual.erro && mesmo(atual.erroMtime, atual.erroSize)) { falhou = true; continue; } // mesmo arquivo ruim
     try {
-      const p = await lerPacote(c.arquivo);
-      if (p.maquina.id === maquina().id) { remotos.delete(c.id); continue; } // nunca lê a si mesmo
-      const novo = { id: c.id, nome: p.maquina.nome || c.id.slice(0, 8), origem: c.origem, arquivo: c.arquivo, mtimeMs: st.mtimeMs, size: st.size,
-        status: Date.now() - p.geradoEm > ANTIGO_MS ? 'ANTIGO' : 'OK', geradoEm: p.geradoEm, versaoApp: p.versaoApp, pacote: p, parcial: null };
-      remotos.set(c.id, novo); // sem campo erro: a versão boa substitui o aviso
-      mudou = true;
-      ctx.telemetry.emitir({ nivel: 'PULSO', fonte: 'sistema', msg: `RECEBIDO DE ${String(novo.nome).toUpperCase()} · ${p.nos.length} NEURÔNIOS${c.origem === 'importado' ? ' · IMPORTADO' : ''}` });
+      const res = await lerMaquina(c, atual, forcar);
+      if (res.eu) { remotos.delete(c.id); continue; } // nunca lê a si mesmo
+      remotos.set(c.id, res.r);
+      if (res.mudou) {
+        mudou = true;
+        const n = [...res.r.partes.values()].reduce((a, p) => a + p.pacote.nos.length, 0);
+        if (res.lidas.length) ctx.telemetry.emitir({ nivel: 'PULSO', fonte: 'sistema', msg: `RECEBIDO DE ${String(res.r.nome).toUpperCase()} · ${res.lidas.length} PARTE(S) · ${(res.bytes / 1024).toFixed(0)} KB · ${n} NEURÔNIOS${c.origem === 'importado' ? ' · IMPORTADO' : ''}` });
+      }
     } catch (e) {
-      // arquivo parcial (nuvem copiando) ou corrompido: mantém a última versão boa, avisa uma vez por arquivo e tenta de novo
       const msg = e.message.slice(0, 160);
-      const antes = atual || { id: c.id, nome: c.id.slice(0, 8), origem: c.origem, arquivo: c.arquivo, pacote: null, status: 'ERRO' };
-      const jaAvisou = antes.erro && mesmo(antes.erroMtime, antes.erroSize);
-      remotos.set(c.id, { ...antes, status: antes.pacote ? antes.status : 'ERRO', erro: msg, erroMtime: st.mtimeMs, erroSize: st.size });
+      const antes = atual || { id: c.id, nome: c.id.slice(0, 8), origem: c.origem, dir: c.dir, arquivo: c.arquivo, partes: new Map(), status: 'ERRO' };
+      const temDados = antes.partes && antes.partes.size > 0;
+      if (e.semPacote) { remotos.set(c.id, { ...antes, status: temDados ? antes.status : 'ERRO', erro: msg }); continue; }
+      // parcial (nuvem copiando) ou corrompido: mantém a última versão boa, avisa uma vez por mensagem e tenta de novo
+      const jaAvisou = antes.erro === msg;
+      remotos.set(c.id, { ...antes, status: temDados ? antes.status : 'ERRO', erro: msg });
       if (!jaAvisou) ctx.telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: `SYNC PACOTE ILEGÍVEL DE ${String(antes.nome).toUpperCase()} (${msg}) · TENTO DE NOVO EM 30 S` });
       falhou = true;
     }
@@ -311,7 +442,7 @@ async function lerRemotos(forcar = false) {
     timerRetry = setTimeout(async () => {
       timerRetry = null;
       if (!ctx) return;
-      if (await lerRemotos(true)) await ctx.aoMudarRemotos('pacote recebido');
+      if (await lerRemotos()) await ctx.aoMudarRemotos('pacote recebido');
       avisar();
     }, 30000);
     timerRetry.unref();
@@ -320,7 +451,7 @@ async function lerRemotos(forcar = false) {
   return mudou;
 }
 
-// pacotes remotos no formato de leitura de fonte (server/graph.js)
+// partes remotas no formato de leitura de fonte (server/graph.js); uma fonte "remoto" por parte
 function parciaisRemotas() {
   const out = [];
   const apel = config.get().apelidos || {};
@@ -328,35 +459,41 @@ function parciaisRemotas() {
   const regras = Object.entries(apel).map(([g, p]) => [globParaRegex(g), p]);
   const apelido = (nome) => { for (const [re, p] of regras) if (re.test(nome)) return p; return nome; };
   for (const r of remotos.values()) {
-    if (!r.pacote) continue;
-    if (!r.parcial) {
-      const p = r.pacote;
-      const nos = p.nos.map((x) => {
-        const corpo = p.conteudos ? p.conteudos[x.chave] : undefined;
-        const n = {
-          chave: x.chave, tipo: x.tipo, fonte: x.fonte, titulo: x.titulo, subregiao: x.subregiao || 'raiz', criado: x.criado, modificado: x.modificado,
-          palavras: x.palavras || 0, autor: x.autor, hash: x.hash || '', caminho: x.caminho, extra: x.extra || {},
-          texto: x.texto !== undefined ? x.texto : (corpo ? corpo.slice(0, 4000) : ''),
-          projetoNota: apelido(x.projeto || 'sem-projeto'), remoto: true, maquina: r.nome, maquinas: [r.nome], maquinaId: r.id,
-        };
-        if (x.tagsAutor) n.tagsAutor = x.tagsAutor;
-        if (x.worktrees) n.worktrees = x.worktrees;
-        if (x.eventos) n._eventos = x.eventos.map(([t, ferramenta, arquivo]) => ({ t, ferramenta, arquivo }));
-        if (corpo !== undefined) n._conteudo = corpo;
-        if (n.tipo === 'sessao' && n.extra) n.extra.arquivos = n.extra.arquivos || [];
-        return n;
-      });
-      const links = (p.sinapses || []).map(([a, b, t, w]) => ({ de: nos[a].chave, para: nos[b].chave, tipo: TIPOS_SIN[t] || 'LINK', peso: w }));
-      r.parcial = { nos, links, eventos: [], itens: nos.length };
+    for (const [arq, parte] of r.partes || []) {
+      if (!parte.pacote) continue;
+      if (!parte.parcial) {
+        const p = parte.pacote;
+        const nos = p.nos.map((x) => {
+          const corpo = p.conteudos ? p.conteudos[x.chave] : undefined;
+          const n = {
+            chave: x.chave, tipo: x.tipo, fonte: x.fonte, titulo: x.titulo, subregiao: x.subregiao || 'raiz', criado: x.criado, modificado: x.modificado,
+            palavras: x.palavras || 0, autor: x.autor, hash: x.hash || '', caminho: x.caminho, extra: x.extra || {},
+            texto: x.texto !== undefined ? x.texto : (corpo ? corpo.slice(0, 4000) : ''),
+            projetoNota: apelido(x.projeto || 'sem-projeto'), remoto: true, maquina: r.nome, maquinas: [r.nome], maquinaId: r.id,
+          };
+          if (x.tagsAutor) n.tagsAutor = x.tagsAutor;
+          if (x.worktrees) n.worktrees = x.worktrees;
+          if (x.eventos) n._eventos = x.eventos.map(([t, ferramenta, arquivo]) => ({ t, ferramenta, arquivo }));
+          if (corpo !== undefined) n._conteudo = corpo;
+          if (n.tipo === 'sessao' && n.extra) n.extra.arquivos = n.extra.arquivos || [];
+          return n;
+        });
+        const ref = (v) => (typeof v === 'number' ? (nos[v] ? nos[v].chave : null) : v); // número = nesta parte; texto = chave de outra parte
+        const links = (p.sinapses || []).map(([a, b, t, w]) => ({ de: ref(a), para: ref(b), tipo: TIPOS_SIN[t] || 'LINK', peso: w })).filter((l) => l.de && l.para);
+        parte.parcial = { nos, links, eventos: [], itens: nos.length };
+      }
+      out.push({ fonte: { id: `rem_${r.id}_${arq}`, tipo: 'remoto', projeto: null, caminho: r.dir || r.arquivo, maquina: r.nome, interno: true }, r: parte.parcial });
     }
-    out.push({ fonte: { id: 'rem_' + r.id, tipo: 'remoto', projeto: null, caminho: r.arquivo, maquina: r.nome, interno: true }, r: r.parcial });
   }
   return out;
 }
 
+const neuroniosDe = (r) => [...(r.partes || new Map()).values()].reduce((a, p) => a + (p.pacote ? p.pacote.nos.length : 0), 0);
+const projetosDe = (r) => [...new Set([...(r.partes || new Map()).values()].flatMap((p) => (p.pacote ? p.pacote.nos.map((n) => n.projeto) : [])))].sort();
+
 function statusRemotos() {
-  return [...remotos.values()].map((r) => ({ id: 'rem_' + r.id, tipo: 'remoto', caminho: r.arquivo, projeto: null, maquina: r.nome, origem: r.origem,
-    status: r.pacote ? r.status : 'ERRO', itens: r.pacote ? r.pacote.nos.length : 0, ...(r.erro ? { erro: r.erro } : {}), interno: true }));
+  return [...remotos.values()].map((r) => ({ id: 'rem_' + r.id, tipo: 'remoto', caminho: r.dir || r.arquivo, projeto: null, maquina: r.nome, origem: r.origem,
+    status: r.partes && r.partes.size ? r.status : 'ERRO', itens: neuroniosDe(r), partes: r.partes ? r.partes.size : 0, ...(r.erro ? { erro: r.erro } : {}), interno: true }));
 }
 
 // ------------------------------------------------------------ vigilância da pasta
@@ -391,10 +528,12 @@ function estado() {
   const eu = maquina();
   const maquinas = [];
   if (c.ativo && c.pasta) maquinas.push({ id: eu.id, nome: eu.nome, eu: true, geradoEm: ultimaPublicacao ? ultimaPublicacao.em : null, neuronios: ultimaPublicacao ? ultimaPublicacao.neuronios : 0,
+    partes: partesPublicadas.size,
     projetos: null, status: erro ? 'ERRO' : 'OK', origem: 'local' });
   for (const r of remotos.values()) {
-    maquinas.push({ id: r.id, nome: r.nome, eu: false, geradoEm: r.geradoEm || null, neuronios: r.pacote ? r.pacote.nos.length : 0,
-      projetos: r.pacote ? [...new Set(r.pacote.nos.map((n) => n.projeto))].sort() : [], status: r.pacote ? r.status : 'ERRO', origem: r.origem, ...(r.erro ? { erro: r.erro } : {}) });
+    const tem = r.partes && r.partes.size > 0;
+    maquinas.push({ id: r.id, nome: r.nome, eu: false, geradoEm: r.geradoEm || null, neuronios: neuroniosDe(r), partes: r.partes ? r.partes.size : 0,
+      projetos: projetosDe(r), status: tem ? r.status : 'ERRO', origem: r.origem, ...(r.erro ? { erro: r.erro } : {}) });
   }
   if (eu && maquinas.length && maquinas[0].eu) {
     const G = ctx && ctx.obterGrafo();
@@ -456,14 +595,13 @@ async function definir(o) {
     await lerRemotos();
     ctx.aoMudarRemotos('sincronização reconfigurada');
   }
-  if (mudancas.length && cfg().ativo) { ultimoHashLocal = null; await publicar({ forcar: true, motivo: 'configuração' }); }
+  if (mudancas.length && cfg().ativo) await publicar({ forcar: mudancas.some((m) => m === 'sync.pasta' || m === 'sync.compartilhar' || m === 'sync.nome'), motivo: 'configuração' });
   avisar();
   return { mudancas };
 }
 
 async function agora() {
-  const pub = await publicar({ forcar: true, motivo: 'manual' });
-  remotos.forEach((r) => { r.mtimeMs = -1; });
+  const pub = await publicar({ motivo: 'manual' }); // só as partes que mudaram
   const mudou = await lerRemotos(true);
   if (mudou) await ctx.aoMudarRemotos('sincronizar agora');
   return { publicado: pub, recebidos: mudou };
@@ -519,7 +657,7 @@ async function esquecer(id) {
 
 async function iniciar(c) {
   ctx = c;
-  maq = null; remotos.clear(); ultimaPublicacao = null; ultimoHashLocal = null; erro = null;
+  maq = null; remotos.clear(); ultimaPublicacao = null; erro = null; partesPublicadas = new Map();
   maquina();
   vigiar();
   await lerRemotos();

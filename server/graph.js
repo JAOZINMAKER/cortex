@@ -14,7 +14,7 @@ function idDe(chave) { return sha1(chave).slice(0, 16); }
 // em _local para o pacote nunca reexportar o que veio de fora)
 function juntarMaquinas(v, n) {
   v.maquinas = [...new Set([...(v.maquinas || [v.maquina]), ...(n.maquinas || [n.maquina])])].filter(Boolean);
-  if (n._origemLocal) v._origemLocal = true;
+  if (n._origemLocal) { v._origemLocal = true; if (!v._fonteId) v._fonteId = n._fonteId; }
   if ((v.tipo === 'nota' || v.tipo === 'doc') && n.modificado > v.modificado) {
     if (v._origemLocal && !v._local) v._local = { titulo: v.titulo, modificado: v.modificado, palavras: v.palavras, hash: v.hash, texto: v.texto, tagsAutor: v.tagsAutor, extra: v.extra };
     for (const k of ['titulo', 'modificado', 'palavras', 'hash', 'texto', 'tagsAutor']) if (n[k] !== undefined) v[k] = n[k];
@@ -98,7 +98,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
       // V5: origem e máquina. Restaura a versão local se uma rodada anterior trocou o conteúdo por um remoto mais novo
       if (n._local) { Object.assign(n, n._local); delete n._local; delete n._conteudo; delete n._conteudoDe; }
       if (remota) { n._origemLocal = false; n.maquinas = [n.maquina]; }
-      else { n._origemLocal = true; n.maquina = eu; n.maquinas = [eu]; }
+      else { n._origemLocal = true; n.maquina = eu; n.maquinas = [eu]; n._fonteId = p.fonte.id; } // _fonteId: parte do pacote de sync
       if (n.tipo === 'doc' && !remota) {
         const ja = porCaminho.get(normPath(n.caminho));
         if (ja) { alias.set(n.chave, ja); continue; }
@@ -210,18 +210,18 @@ function montar(parciais, statusFontes, opcoes = {}) {
 
   // sinapses
   const sinapses = [];
-  const sinapsesLocais = []; // índices das sinapses que vieram das fontes locais (o pacote de sync só leva estas)
+  const sinapsesLocais = []; // [índice, fonteId] das sinapses que vieram das fontes locais (o pacote de sync só leva estas)
   const vistos = new Set();
   function add(a, b, tipo, peso, local) {
     if (a < 0 || b < 0 || a === b) return;
     const k = a * 4194304 + b + ':' + tipo;
     if (vistos.has(k)) return;
     vistos.add(k);
-    if (local) sinapsesLocais.push(sinapses.length);
+    if (local) sinapsesLocais.push([sinapses.length, local]);
     sinapses.push({ a, b, tipo, peso: Math.round(peso * 100) / 100 });
   }
   for (const p of ps) {
-    const local = p.fonte.tipo !== 'remoto';
+    const local = p.fonte.tipo !== 'remoto' ? p.fonte.id : null;
     for (const l of p.r.links) {
       const a = idxDe(l.de);
       let b;

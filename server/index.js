@@ -234,6 +234,7 @@ function atualizarRapido(r) {
   G.publico.geradoEm = Date.now();
   cacheJson = null;
   cacheRecortes.clear();
+  if (pronto) sync.agendarPublicacao(); // sessão ativa: só a parte das sessões muda
   return true;
 }
 
