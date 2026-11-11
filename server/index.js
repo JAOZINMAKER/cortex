@@ -61,7 +61,7 @@ let pronto = false;
 const fase = () => (pronto ? 'PRONTO' : 'MONTANDO');
 function statusCompleto() {
   const c = G ? G.publico.contadores : null;
-  return { ...telemetry.status(), pronto, fase: fase(), versao, porta: PORTA, neuronios: c ? c.neuronios : 0, sinapses: c ? c.sinapses : 0, contadores: c };
+  return { ...telemetry.status(), pronto, fase: fase(), vigilanciaPausada, versao, porta: PORTA, neuronios: c ? c.neuronios : 0, sinapses: c ? c.sinapses : 0, contadores: c };
 }
 
 
@@ -259,8 +259,25 @@ async function aoMudar(fonte, mudancas) {
   }
 }
 
+let vigilanciaPausada = false;
 function vigiarTudo() {
+  if (vigilanciaPausada) return;
   for (const f of todasFontes()) watch.vigiar(f, aoMudar);
+}
+
+// pausa/retoma a vigilância (bandeja do app). Retomar reconstrói para pegar o que mudou na pausa.
+async function definirVigilancia(pausar) {
+  if (pausar === vigilanciaPausada) return { pausada: vigilanciaPausada, mudou: false };
+  vigilanciaPausada = pausar;
+  if (pausar) {
+    watch.pararTodos();
+    telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: 'VIGILÂNCIA PAUSADA · MUDANÇAS NAS FONTES SERÃO LIDAS AO RETOMAR' });
+  } else {
+    telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: 'VIGILÂNCIA RETOMADA · RECONSTRUINDO' });
+    if (pronto) { vigiarTudo(); construirTudo('vigilância retomada').catch((e) => log('reconstrução ao retomar falhou:', e.message)); }
+  }
+  broadcast({ tipo: 'vigilancia', pausada: vigilanciaPausada });
+  return { pausada: vigilanciaPausada, mudou: true };
 }
 
 // ---------------------------------------------------------------- máquina
@@ -740,7 +757,7 @@ async function tratar(req, res) {
       try { f = config.adicionarFonte(corpo); } catch (e) { return json(res, 400, { erro: e.message }); }
       projeto.limparCache();
       telemetry.emitir({ nivel: 'INFO', fonte: f.tipo, msg: `FONTE CONECTADA ${f.tipo.toUpperCase()} ${f.caminho}` });
-      (async () => { filaReconstrucao++; try { const reg = await lerFonte(f); montarGrafo('fonte conectada'); eventosNovos(reg); watch.vigiar(f, aoMudar); } finally { filaReconstrucao--; } })();
+      (async () => { filaReconstrucao++; try { const reg = await lerFonte(f); montarGrafo('fonte conectada'); eventosNovos(reg); if (!vigilanciaPausada) watch.vigiar(f, aoMudar); } finally { filaReconstrucao--; } })();
       return json(res, 200, { ok: true, fonte: f });
     }
     if (p.startsWith('/api/fontes/') && req.method === 'DELETE') {
@@ -760,6 +777,12 @@ async function tratar(req, res) {
     }
     if (p === '/api/maquina') return json(res, 200, maquina(true), req);
     if (p === '/api/status') return json(res, 200, statusCompleto());
+    if (p === '/api/vigilancia' && req.method === 'GET') return json(res, 200, { pausada: vigilanciaPausada });
+    if (p === '/api/vigilancia' && req.method === 'POST') {
+      const corpo = await lerCorpo(req);
+      if (!corpo || typeof corpo.pausada !== 'boolean') return json(res, 400, { erro: 'envie { pausada: boolean }' });
+      return json(res, 200, { ok: true, ...(await definirVigilancia(corpo.pausada)) });
+    }
     if (p.startsWith('/api/') && await v4.tratar(p, req, res, url, ctxV4)) return;
     if (p.startsWith('/api/')) return json(res, 404, { erro: 'rota desconhecida' });
 
@@ -876,7 +899,7 @@ async function pararInterno() {
   if (wss) { for (const c of wss.clients) { try { c.terminate(); } catch { /* já caiu */ } } await new Promise((r) => wss.close(() => r())); }
   if (servidor) await new Promise((r) => { servidor.close(() => r()); if (servidor.closeAllConnections) servidor.closeAllConnections(); });
   servidor = null; wss = null;
-  G = null; versao = 0; assinatura = ''; cacheJson = null; pronto = false; parciais.clear(); cacheRecortes.clear();
+  G = null; versao = 0; assinatura = ''; cacheJson = null; pronto = false; vigilanciaPausada = false; parciais.clear(); cacheRecortes.clear();
 }
 
 module.exports = { iniciar };
