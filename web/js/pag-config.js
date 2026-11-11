@@ -1,9 +1,10 @@
 // CONFIGURAÇÕES: GERAL, FONTES, ORGANIZAÇÃO, APARÊNCIA (com editor de tema), CÉREBRO, DESEMPENHO, NOTIFICAÇÕES, DADOS, SOBRE.
 import * as tema from './tema.js';
-import { esc, fmtN } from './util.js';
+import { esc, fmtN, fmtRel, fmtDataHora } from './util.js';
 import { obter, enviar } from './dados.js';
 
-export const SUBS = [['geral', 'GERAL'], ['fontes', 'FONTES'], ['organizacao', 'ORGANIZAÇÃO'], ['aparencia', 'APARÊNCIA'], ['cerebro', 'CÉREBRO'], ['desempenho', 'DESEMPENHO'], ['notificacoes', 'NOTIFICAÇÕES'], ['dados', 'DADOS'], ['sobre', 'SOBRE']];
+const pubT = s => { const u = s && s.ultimaPublicacao; return !u ? 0 : typeof u === 'object' ? (u.em || u.geradoEm || u.t || 0) : +u; };
+export const SUBS = [['geral', 'GERAL'], ['fontes', 'FONTES'], ['sync', 'SINCRONIZAÇÃO'], ['organizacao', 'ORGANIZAÇÃO'], ['aparencia', 'APARÊNCIA'], ['cerebro', 'CÉREBRO'], ['desempenho', 'DESEMPENHO'], ['notificacoes', 'NOTIFICAÇÕES'], ['dados', 'DADOS'], ['sobre', 'SOBRE']];
 const PADRAO = {
   geral: { idioma: 'pt', iniciarComWindows: false, fecharParaBandeja: true, atalhoGlobal: 'Ctrl+Alt+C', porta: 4747 },
   organizacao: { regrasLocais: true, claudeAtivo: false, modelo: 'claude-haiku-5-5', limitePorHora: 120 },
@@ -26,6 +27,7 @@ export class PaginaConfig {
   }
   async render(el, r) {
     if (!this.cfg || r.sub === 'geral' || r.sub === 'sobre' || r.sub === 'organizacao') await this._carregar();
+    if (r.sub === 'sync') this._syncLido = false;
     el.innerHTML = `<div class="cf"><aside class="cf-nav"><div class="pg-sup">SEÇÃO 05</div><h1>CONFIG.</h1>${SUBS.map(([k, t], i) => `<a href="#/config/${k}" class="${r.sub === k ? 'on' : ''}"><kbd>${String(i + 1).padStart(2, '0')}</kbd>${t}</a>`).join('')}
       <div class="cf-salvo" data-salvo>${this.temServidor ? 'SALVA SOZINHO · /api/config' : 'SERVIDOR SEM /api/config · SÓ AJUSTES VISUAIS SALVAM'}</div></aside><section class="cf-main" data-cf></section></div>`;
     this.box = el.querySelector('[data-cf]'); this.sub = r.sub;
@@ -133,6 +135,46 @@ export class PaginaConfig {
     b.innerHTML = this._sec('NOTIFICAÇÕES', 'AVISOS RÁPIDOS NO CANTO DA TELA') + this._ck('notificacoes', 'registroDiario', 'QUANDO UMA SESSÃO REGISTRA NO DIÁRIO') + this._ck('notificacoes', 'commitNovo', 'QUANDO ENTRA UM COMMIT NOVO') + this._ck('notificacoes', 'sessaoNova', 'QUANDO UMA SESSÃO DO CLAUDE CODE COMEÇA') +
       `<label class="cf-l"><div><b>TESTAR</b></div><span class="cf-c"><button class="btn-acao" data-teste>MOSTRAR UM AVISO</button></span></label>`;
     b.querySelector('[data-teste]').onclick = () => this.app.toast('DIÁRIO · CORTEX', 'Exemplo: uma sessão registrou "Revisão semanal".');
+  }
+  async _sync(b) {
+    const S = this.app.sync; let s = S.s; if (!s || !this._syncLido) { await S.carregar(); s = S.s; this._syncLido = true; }
+    if (!s) { b.innerHTML = this._sec('SINCRONIZAÇÃO', 'JUNTA OS CÉREBROS DOS SEUS PCs') + `<div class="pg-vazio alerta">O SERVIDOR DESTE PC AINDA NÃO TEM SINCRONIZAÇÃO (/api/sync). ATUALIZE O CÓRTEX.</div>`; return; }
+    const nativo = !!(window.cortexApp && window.cortexApp.escolherPasta); const c = s.compartilhar || {}; const ms = s.maquinas || [];
+    const st = { OK: 'OK', ANTIGO: 'ANTIGO', ERRO: 'ERRO' };
+    b.innerHTML = this._sec('SINCRONIZAÇÃO', 'JUNTA OS CÉREBROS DOS SEUS PCs') +
+      `<div class="sy-guia"><div><b>1</b><span>Escolha uma pasta que já sincroniza entre seus PCs (ex.: OneDrive).</span></div><div><b>2</b><span>Faça o mesmo no outro PC.</span></div><div><b>3</b><span>Os dois cérebros se juntam.</span></div></div>` +
+      `<label class="cf-l sy-liga"><div><b>SINCRONIZAÇÃO ${s.ativo ? '<em class="sy-est on">● LIGADA</em>' : '<em class="sy-est">○ DESLIGADA</em>'}</b><span>${s.ativo && pubT(s) ? `PUBLICADO HÁ ${fmtRel(pubT(s))}${s.ultimaPublicacao?.neuronios != null ? ' · ' + fmtN(s.ultimaPublicacao.neuronios) + ' NEURÔNIOS' : ''}${s.ultimaPublicacao?.bytes ? ' · ' + fmtN(Math.round(s.ultimaPublicacao.bytes / 1024)) + ' KB' : ''} · ` : ''}${s.erro ? `<span class="alerta">ERRO: ${esc(s.erro)}</span>` : 'CADA PC ESCREVE SÓ NA PRÓPRIA PASTA DENTRO DE CORTEX-SYNC'}</span></div><span class="cf-c"><input type="checkbox" class="sw" data-sy-ativo ${s.ativo ? 'checked' : ''}></span></label>` +
+      `<div class="sy-aviso">⚠ AO LIGAR, O CÓRTEX COPIA OS DADOS DESTE PC (NOTAS, COMMITS, SESSÕES, DIÁRIO) PARA A PASTA ESCOLHIDA. SE ELA ESTIVER NO ONEDRIVE, GOOGLE DRIVE OU DROPBOX, ESSES DADOS VÃO PARA A NUVEM DESSE SERVIÇO.</div>` +
+      this._grupo('PASTA DE SINCRONIZAÇÃO') + `<div class="cf-pasta"><input class="pv-in" data-sy-pasta value="${esc(s.pasta || '')}" placeholder="C:\\Users\\jaozin\\OneDrive"><button type="button" data-sy-escolher>${nativo ? 'ESCOLHER PASTA…' : 'USAR ESTE CAMINHO'}</button></div>` +
+      `${(s.sugestoes || []).length ? `<div class="sy-sug"><span>DETECTADAS NESTE PC:</span>${s.sugestoes.map(x => `<button type="button" class="chip" data-sy-sug="${esc(x.caminho)}"><b>${esc(x.rotulo)}</b> ${esc(x.caminho)}</button>`).join('')}</div>` : '<div class="pg-nota">NENHUMA PASTA DE NUVEM DETECTADA. QUALQUER PASTA SERVE: REDE, PENDRIVE OU UMA PASTA QUE VOCÊ COPIA À MÃO.</div>'}` +
+      `<div class="pg-nota">O CÓRTEX CRIA <code>${esc((s.pasta || '<PASTA>') + (/[\\/]$/.test(s.pasta || '') ? '' : (String(s.pasta || '').includes(String.fromCharCode(92)) ? String.fromCharCode(92) : '/')) + 'CORTEX-SYNC')}</code> DENTRO DELA.</div>` +
+      this._grupo('ESTE PC') + `<label class="cf-l"><div><b>NOME DESTE PC</b><span>APARECE NOS NEURÔNIOS COMO "DE: …" NOS OUTROS PCs · ID ${esc(String(s.maquina?.id || '').slice(0, 8))}</span></div><span class="cf-c"><input class="pv-in" data-sy-nome value="${esc(s.maquina?.nome || '')}" maxlength="40"></span></label>` +
+      `<label class="cf-l"><div><b>INTERVALO</b><span>PUBLICA NO MÁXIMO A CADA N MINUTOS (E LOGO APÓS RECONSTRUIR)</span></div><span class="cf-c"><input type="number" class="pv-in curto" min="1" max="120" data-sy-int value="${esc(s.intervaloMin ?? 2)}"></span></label>` +
+      this._grupo('O QUE COMPARTILHAR') +
+      `<label class="cf-l"><div><b>NOTAS DO OBSIDIAN</b><span>"SÓ METADADOS" MANDA TÍTULO, DATAS E LIGAÇÕES, SEM O TEXTO</span></div><span class="cf-c"><span class="pv-seg">${[['conteudo', 'COM CONTEÚDO'], ['metadados', 'SÓ METADADOS']].map(([k, t]) => `<button type="button" data-sy-notas="${k}" class="${(c.notas || 'conteudo') === k ? 'on' : ''}">${t}</button>`).join('')}</span></span></label>` +
+      [['git', 'COMMITS E ARQUIVOS DO GIT'], ['sessoes', 'SESSÕES DO CLAUDE CODE'], ['pastas', 'PASTAS COMUNS'], ['diario', 'DIÁRIO DAS SESSÕES']].map(([k, t]) => `<label class="cf-l"><div><b>${t}</b></div><span class="cf-c"><input type="checkbox" class="sw" data-sy-comp="${k}" ${c[k] !== false ? 'checked' : ''}></span></label>`).join('') +
+      this._grupo(`PCs CONHECIDOS · ${ms.length}`) +
+      `<div class="tb-lista"><div class="tbl h sy7"><span>PC</span><span>ÚLTIMA PUBLICAÇÃO</span><span>NEURÔNIOS</span><span>PROJETOS</span><span>STATUS</span><span></span></div>${ms.map(m => `<div class="tbl sy7${m.eu ? ' eu' : ''}"><span class="b">${m.eu ? '◆ ' : ''}${esc(m.nome)}${m.eu ? ' <i>ESTE PC</i>' : ''}</span><span>${m.geradoEm ? fmtDataHora(m.geradoEm) + ' · ' + fmtRel(m.geradoEm) : '—'}</span><span>${fmtN(m.neuronios)}</span><span class="c" title="${esc((m.projetos || []).join(', '))}">${Array.isArray(m.projetos) ? esc(m.projetos.join(', ')) || '—' : fmtN(m.projetos)}</span><span class="s ${esc(m.status || '')}">${esc(st[m.status] || m.status || '—')}</span><span>${m.eu ? '' : `<button class="btn-mini" data-sy-esq="${esc(m.id)}">ESQUECER</button>`}</span></div>`).join('') || '<div class="tbl"><span class="apagado">NENHUM PC AINDA</span></div>'}</div>` +
+      (ms.filter(m => !m.eu).length ? '' : `<div class="pg-nota">SÓ ESTE PC ATÉ AGORA. QUANDO O OUTRO PC APONTAR PARA A MESMA PASTA, ELE APARECE AQUI SOZINHO.</div>`) +
+      `<div class="sy-acoes"><button class="btn-acao" data-sy-agora ${s.ativo ? '' : 'disabled'}>SINCRONIZAR AGORA</button></div>` +
+      this._grupo('SEM PASTA EM COMUM? PACOTE AVULSO') + `<div class="pg-nota" style="margin-top:0">GERE UM ARQUIVO <code>.cortexpack</code> AQUI, LEVE PARA O OUTRO PC (PENDRIVE, E-MAIL) E IMPORTE LÁ.</div>` +
+      `<div class="sy-pac"><input class="pv-in" data-sy-exp placeholder="C:\\Users\\jaozin\\Desktop\\${esc((s.maquina?.nome || 'meu-pc').toLowerCase())}.cortexpack"><button data-sy-exportar>EXPORTAR PACOTE</button><input class="pv-in" data-sy-imp placeholder="CAMINHO DO .cortexpack DO OUTRO PC"><button data-sy-importar>IMPORTAR PACOTE</button></div><div class="cf-msg" data-msg></div>`;
+    const msg = t => { b.querySelector('[data-msg]').innerHTML = t; };
+    const enviarSync = async (o, okTxt) => { try { const r = await enviar('/api/sync', o); S.atualizar(r && r.maquinas ? r : await obter('/api/sync')); if (okTxt) msg(`<span class="maquina-c">${okTxt}</span>`); } catch (e) { msg(`<span class="alerta">${esc(e.corpo?.erro || e.message)}</span>`); } };
+    b.querySelector('[data-sy-ativo]').onchange = ev => { const p = b.querySelector('[data-sy-pasta]').value.trim(); if (ev.target.checked && !p && !s.pasta) { ev.target.checked = false; msg('<span class="alerta">ESCOLHA UMA PASTA PRIMEIRO.</span>'); return; } enviarSync({ ativo: ev.target.checked, ...(p && p !== s.pasta ? { pasta: p } : {}) }, ev.target.checked ? 'SINCRONIZAÇÃO LIGADA. FAÇA O MESMO NO OUTRO PC.' : 'SINCRONIZAÇÃO DESLIGADA.'); };
+    const usarPasta = p => { if (!p) return; b.querySelector('[data-sy-pasta]').value = p; enviarSync({ pasta: p }, 'PASTA DEFINIDA: ' + esc(p) + (s.ativo ? '' : ' · AGORA LIGUE A SINCRONIZAÇÃO')); };
+    b.querySelector('[data-sy-escolher]').onclick = async () => { if (nativo) { try { usarPasta(await window.cortexApp.escolherPasta()); } catch {} } else usarPasta(b.querySelector('[data-sy-pasta]').value.trim()); };
+    b.querySelector('[data-sy-pasta]').onkeydown = ev => { if (ev.key === 'Enter') usarPasta(ev.target.value.trim()); };
+    b.querySelectorAll('[data-sy-sug]').forEach(x => x.onclick = () => usarPasta(x.dataset.sySug));
+    const nome = b.querySelector('[data-sy-nome]'); nome.onchange = () => { const v = nome.value.trim(); if (v && v !== s.maquina?.nome) enviarSync({ nome: v }, 'NOME SALVO. OS OUTROS PCs VEEM ISSO NA PRÓXIMA PUBLICAÇÃO.'); };
+    b.querySelector('[data-sy-int]').onchange = ev => enviarSync({ intervaloMin: Math.max(1, +ev.target.value || 2) }, 'INTERVALO SALVO.');
+    b.querySelectorAll('[data-sy-notas]').forEach(x => x.onclick = () => enviarSync({ compartilhar: { ...c, notas: x.dataset.syNotas } }, 'SALVO.'));
+    b.querySelectorAll('[data-sy-comp]').forEach(x => x.onchange = () => enviarSync({ compartilhar: { ...c, [x.dataset.syComp]: x.checked } }, 'SALVO.'));
+    b.querySelectorAll('[data-sy-esq]').forEach(x => x.onclick = async () => { x.textContent = '…'; try { await obter('/api/sync/maquinas/' + encodeURIComponent(x.dataset.syEsq), { method: 'DELETE' }); } catch {} this._syncLido = false; this._sync(b); });
+    b.querySelector('[data-sy-agora]').onclick = async () => { msg('PUBLICANDO E RELENDO…'); await S.agora(); this._syncLido = false; this._sync(b); };
+    b.querySelector('[data-sy-exportar]').onclick = async () => { const p = b.querySelector('[data-sy-exp]').value.trim() || b.querySelector('[data-sy-exp]').placeholder; msg('EXPORTANDO…'); try { const r = await enviar('/api/sync/exportar', { caminho: p }); msg(`<span class="maquina-c">PACOTE GRAVADO: ${esc(r.caminho || p)}${r.bytes ? ' · ' + fmtN(Math.round(r.bytes / 1024)) + ' KB' : ''}</span>`); } catch (e) { msg(`<span class="alerta">${esc(e.corpo?.erro || e.message)}</span>`); } };
+    b.querySelector('[data-sy-importar]').onclick = async () => { const p = b.querySelector('[data-sy-imp]').value.trim(); if (!p) { msg('<span class="alerta">COLE O CAMINHO DO PACOTE.</span>'); return; } msg('IMPORTANDO…'); try { const r = await enviar('/api/sync/importar', { caminho: p }); msg(`<span class="maquina-c">IMPORTADO${r.maquina ? ': ' + esc(r.maquina.nome || r.maquina) : ''}. O CÉREBRO SE REDESENHA SOZINHO.</span>`); this._syncLido = false; setTimeout(() => this._sync(b), 1200); } catch (e) { msg(`<span class="alerta">${esc(e.corpo?.erro || e.message)}</span>`); } };
+    if (this._focoExportar) { this._focoExportar = false; b.querySelector('[data-sy-exp]').focus(); b.querySelector('[data-sy-exp]').scrollIntoView({ block: 'center' }); }
   }
   _dados(b) {
     const s = this.status || {}; const dir = this.caminhos?.dadosDir || s.dadosDir || this.extra?.sobre?.dados || '';

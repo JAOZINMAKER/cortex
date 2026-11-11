@@ -14,7 +14,7 @@ export class PaginaProjetos {
     const app = this.app; if (!app.visoes.projetos.length) await app.visoes.carregarListas();
     try { const g = await grafoTudo(app); if (this._ver !== g.versao || !this.est) { this.est = estatisticas(g); this._ver = g.versao; } } catch { this.est = this.est || { porProjeto: new Map(), caixa: { x0: -1, x1: 1, z0: -1, z1: 1 } }; }
     const fav = app.ajustes.a.projetosFav || [], ocu = app.ajustes.a.projetosOcultos || [];
-    return app.visoes.projetos.map((p, k) => { const e = this.est.porProjeto.get(p.nome) || {}; return { ...e, ...p, horasIA: p.horasIA ?? e.horasIA, d30: e.d30 || new Array(30).fill(0), diario: e.diario || 0, fav: fav.includes(p.nome), oculto: ocu.includes(p.nome), serial: 'PJ-' + String(k + 1).padStart(4, '0') }; });
+    return app.visoes.projetos.map((p, k) => { const e = this.est.porProjeto.get(p.nome) || {}; return { ...e, ...p, pcs: e.pcs || new Map(), horasIA: p.horasIA ?? e.horasIA, d30: e.d30 || new Array(30).fill(0), diario: e.diario || 0, fav: fav.includes(p.nome), oculto: ocu.includes(p.nome), serial: 'PJ-' + String(k + 1).padStart(4, '0') }; });
   }
   ordenados(l) {
     const o = this.ordem; const f = this.filtro.toLowerCase();
@@ -44,7 +44,7 @@ export class PaginaProjetos {
       <div class="pj-top"><canvas data-sil="${esc(p.nome)}"></canvas><div class="pj-nome"><div class="pj-serial">${p.serial} · ${esc(String(p.regiao || 'r_' + p.nome).toUpperCase())}</div><h2>${esc(String(p.nome).toUpperCase())}</h2><div class="pj-pulso">ÚLTIMO PULSO <b>${fmtRel(p.ultimoPulso)}</b></div></div>
       <div class="pj-btns"><button class="ico${p.fav ? ' on' : ''}" data-fav="${esc(p.nome)}" title="${p.fav ? 'DESAFIXAR' : 'FIXAR NO TOPO'}">★</button><button class="ico" data-ocultar="${esc(p.nome)}" title="${p.oculto ? 'MOSTRAR' : 'OCULTAR'}">${p.oculto ? '◉' : '◌'}</button></div></div>
       <div class="pj-nums"><div><span>NEURÔNIOS</span><b class="acento">${fmtK(p.neuronios || 0)}</b></div><div><span>COMMITS</span><b>${fmtK(p.commits || 0)}</b></div><div><span>SESSÕES</span><b>${fmtN(p.sessoes || 0)}</b></div><div><span>HORAS IA</span><b>${(p.horasIA || 0).toFixed(1).replace('.', ',')}</b></div></div>
-      <div class="pj-ativ"><span>30 DIAS · ${fmtN(p.d30.reduce((a, b) => a + b, 0))} EVENTOS</span>${barras(p.d30, 220, 22)}</div>
+      ${p.pcs && p.pcs.size > 1 ? `<div class="pj-pcs">${[...p.pcs].map(([n, c]) => `<span>${n === this.app.sync?.eu ? '◆' : '◇'} ${esc(String(n).toUpperCase())} ${fmtK(c)}</span>`).join('')}</div>` : ''}<div class="pj-ativ"><span>30 DIAS · ${fmtN(p.d30.reduce((a, b) => a + b, 0))} EVENTOS</span>${barras(p.d30, 220, 22)}</div>
       <div class="pj-pe">${ABAS.map(([k, t]) => `<a href="#/projetos/${n}/${k}">${t}</a>`).join('')}</div></article>`;
   }
   _acoesCartao(el) {
@@ -60,7 +60,12 @@ export class PaginaProjetos {
       <div class="pp-tit"><div class="pg-sup">${p.serial} · PROJETO ${(this._ultimaLista || []).findIndex(x => x.nome === p.nome) + 1}/${(this._ultimaLista || []).length}</div><h1>${esc(String(p.nome).toUpperCase())}</h1></div>
       <div class="pp-nums">${[['NEURÔNIOS', fmtN(p.neuronios || 0), 1], ['NOTAS', fmtN(p.notas || 0)], ['COMMITS', fmtN(p.commits || 0)], ['SESSÕES', fmtN(p.sessoes || 0)], ['HORAS IA', (p.horasIA || 0).toFixed(1).replace('.', ',')], ['DIÁRIO', fmtN(p.diario || 0)], ['ÚLTIMO PULSO', fmtRel(p.ultimoPulso)]].map(([k, v, a]) => `<div><span>${k}</span><b class="${a ? 'acento' : ''}">${v}</b></div>`).join('')}</div>
       <div class="pp-btns"><button class="ico${p.fav ? ' on' : ''}" data-fav="${esc(p.nome)}" title="FIXAR">★</button><button class="ico" data-ocultar="${esc(p.nome)}" title="${p.oculto ? 'MOSTRAR' : 'OCULTAR'}">${p.oculto ? '◉' : '◌'}</button></div></div>
-      <div class="pp-abas">${ABAS.map(([k, t], i) => `<a href="#/projetos/${n}/${k}" class="${aba === k ? 'on' : ''}"><kbd>${i + 1}</kbd>${t}</a>`).join('')}</div>`;
+      ${this._pcs(p)}<div class="pp-abas">${ABAS.map(([k, t], i) => `<a href="#/projetos/${n}/${k}" class="${aba === k ? 'on' : ''}"><kbd>${i + 1}</kbd>${t}</a>`).join('')}</div>`;
+  }
+  _pcs(p) {
+    const pcs = [...(p.pcs || new Map())].sort((a, b) => b[1] - a[1]); if (!pcs.length) return '';
+    const eu = this.app.sync?.eu; const tot = pcs.reduce((s, x) => s + x[1], 0);
+    return `<div class="pp-pcs"><span class="pp-pcs-r">DADOS VINDOS DE ${pcs.length} PC${pcs.length > 1 ? 's' : ''}</span>${pcs.map(([n, c]) => `<span class="pp-pc${n === eu ? ' eu' : ''}" title="${fmtN(c)} NEURÔNIOS"><b>${n === eu ? '◆' : '◇'} ${esc(String(n).toUpperCase())}</b>${n === eu ? ' ESTE PC' : ''} · ${fmtN(c)}<i style="width:${(c / tot * 100).toFixed(1)}%"></i></span>`).join('')}</div>`;
   }
   async barra(el, nome) {
     const l = await this._dados(); this._ultimaLista = this.ordenados(l.filter(p => !p.oculto || p.nome === nome)); const p = l.find(x => x.nome === nome) || { nome, d30: [] };

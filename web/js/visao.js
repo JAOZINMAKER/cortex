@@ -3,7 +3,7 @@
 import { $, el, esc, fmtN, fmtData } from './util.js';
 
 const DIA = 864e5;
-const LISTAS = ['projetos', 'fontes', 'tipos', 'tags'];
+const LISTAS = ['projetos', 'fontes', 'tipos', 'tags', 'maquinas'];
 const FONTES = [['obsidian', 'OBSIDIAN'], ['git', 'GIT'], ['claude', 'CLAUDE CODE'], ['pasta', 'PASTA'], ['diario', 'DIÁRIO']];
 const TIPOS = [['nota', 'NOTA'], ['commit', 'COMMIT'], ['sessao', 'SESSÃO'], ['arquivo', 'ARQUIVO'], ['branch', 'BRANCH'], ['worktree', 'WORKTREE'], ['doc', 'DOC']];
 export const TUDO = { id: 'tudo', nome: 'TUDO' };
@@ -22,7 +22,7 @@ export function daQuery(q) {
 }
 export function descrever(v) {
   if (vazia(v)) return 'TODOS OS PROJETOS · TODAS AS FONTES';
-  const p = []; if (v.projetos?.length) p.push(v.projetos.join(' + ').toUpperCase()); if (v.fontes?.length) p.push(v.fontes.join('/').toUpperCase()); if (v.tipos?.length) p.push(v.tipos.join('/').toUpperCase());
+  const p = []; if (v.projetos?.length) p.push(v.projetos.join(' + ').toUpperCase()); if (v.fontes?.length) p.push(v.fontes.join('/').toUpperCase()); if (v.tipos?.length) p.push(v.tipos.join('/').toUpperCase()); if (v.maquinas?.length) p.push('DE ' + v.maquinas.join(' + ').toUpperCase());
   if (v.desde) p.push('DESDE ' + fmtData(v.desde)); if (v.ate) p.push('ATÉ ' + fmtData(v.ate)); if (v.tags?.length) p.push('#' + v.tags.join(' #').toUpperCase());
   if (v.grauMin) p.push('GRAU ≥ ' + v.grauMin); if (v.texto) p.push('"' + v.texto.toUpperCase() + '"'); if (v.vizinhos) p.push('+' + v.vizinhos + ' SALTO' + (v.vizinhos > 1 ? 'S' : ''));
   return p.join(' · ');
@@ -68,7 +68,7 @@ export class Visoes {
   async recarregar() { const qs = paraQuery(this.atual).toString(); try { const r = await fetch('/api/graph' + (qs ? '?' + qs : '')); if (r.ok) { let g = await r.json(); if (!('visao' in g) && !vazia(this.atual)) g = this._filtrarLocal(g, this.atual); this.app.aplicarGrafo(g); } } catch {} }
   isolarProjeto(nome) { const s = this.salvas.find(x => x.projetos?.length === 1 && x.projetos[0] === nome && LISTAS.every(k => k === 'projetos' || !x[k]?.length)); this.aplicar(s || { id: 'ad-hoc', nome: 'SÓ ' + nome.toUpperCase(), projetos: [nome] }); }
   _filtrarLocal(g, v) {
-    const ok = n => (n.tipo === 'dia') || ((!v.projetos?.length || v.projetos.includes(n.regiao.replace(/^r_/, ''))) && (!v.fontes?.length || v.fontes.includes(n.fonte)) && (!v.tipos?.length || v.tipos.includes(n.tipo)) && (!v.desde || (n.modificado || n.criado) >= v.desde) && (!v.ate || n.criado <= v.ate) && (!v.grauMin || n.grau >= v.grauMin) && (!v.texto || n.titulo.toLowerCase().includes(v.texto.toLowerCase())) && (!v.tags?.length || (n.tags || []).some(t => v.tags.includes(String(t).toUpperCase()))));
+    const ok = n => (n.tipo === 'dia') || ((!v.projetos?.length || v.projetos.includes(n.regiao.replace(/^r_/, ''))) && (!v.fontes?.length || v.fontes.includes(n.fonte)) && (!v.tipos?.length || v.tipos.includes(n.tipo)) && (!v.maquinas?.length || (n.maquinas || [n.maquina]).some(m => v.maquinas.includes(m))) && (!v.desde || (n.modificado || n.criado) >= v.desde) && (!v.ate || n.criado <= v.ate) && (!v.grauMin || n.grau >= v.grauMin) && (!v.texto || n.titulo.toLowerCase().includes(v.texto.toLowerCase())) && (!v.tags?.length || (n.tags || []).some(t => v.tags.includes(String(t).toUpperCase()))));
     const sel = []; g.nos.forEach((n, i) => ok(n) && sel.push(i)); const m = new Map(sel.map((i, k) => [i, k]));
     return { ...g, nos: sel.map(i => g.nos[i]), sinapses: g.sinapses.filter(s => m.has(s.a) && m.has(s.b)).map(s => ({ ...s, a: m.get(s.a), b: m.get(s.b) })), regioes: g.regioes.filter(r => sel.some(i => g.nos[i].regiao === r.id)), visao: v, total: { neuronios: g.nos.length, sinapses: g.sinapses.length } };
   }
@@ -92,6 +92,7 @@ export class Visoes {
       <div class="pv-rot">VISÕES SALVAS</div><div class="pv-chips">${this.salvas.map(s => `<button class="chip${s.id === this.atual.id ? ' on' : ''}" data-salva="${esc(s.id)}">${esc(s.nome)}</button>`).join('')}</div>
       <div class="pv-rot">PROJETOS <span>${P.length}</span></div><div class="pv-lista">${P.map(p => `<label class="ck"><input type="checkbox" data-k="projetos" value="${esc(p.nome)}" ${tem('projetos', p.nome) ? 'checked' : ''}><span>${esc(String(p.nome).toUpperCase())}</span><b>${fmtN(p.neuronios)}</b></label>`).join('') || '<div class="apagado">—</div>'}</div>
       <div class="pv-rot">FONTES</div><div class="pv-chips">${FONTES.map(([k, t]) => `<label class="ck chipck"><input type="checkbox" data-k="fontes" value="${k}" ${tem('fontes', k) ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div>
+      ${this._maquinas().length > 1 || (r.maquinas || []).length ? `<div class="pv-rot">MÁQUINAS (PCs) <span>${this._maquinas().length}</span></div><div class="pv-lista">${this._maquinas().map(m => `<label class="ck"><input type="checkbox" data-k="maquinas" value="${esc(m.nome)}" ${tem('maquinas', m.nome) ? 'checked' : ''}><span>${m.eu ? '◆ ' : '◇ '}${esc(String(m.nome).toUpperCase())}${m.eu ? ' · ESTE PC' : ''}</span><b>${m.neuronios != null ? fmtN(m.neuronios) : ''}</b></label>`).join('')}</div>` : ''}
       <div class="pv-rot">TIPOS</div><div class="pv-chips">${TIPOS.map(([k, t]) => `<label class="ck chipck"><input type="checkbox" data-k="tipos" value="${k}" ${tem('tipos', k) ? 'checked' : ''}><span>${t}</span></label>`).join('')}</div>
       <div class="pv-rot">PERÍODO</div><div class="pv-seg">${[['7', '7D'], ['30', '30D'], ['90', '90D'], ['tudo', 'TUDO'], ['pers', 'PERSONALIZADO']].map(([k, t]) => `<button data-per="${k}" class="${perSel === k ? 'on' : ''}">${t}</button>`).join('')}</div>
       <div class="pv-datas" ${perSel === 'pers' ? '' : 'hidden'}><label>DESDE<input type="date" data-data="desde" value="${r.desde ? fmtData(r.desde) : ''}"></label><label>ATÉ<input type="date" data-data="ate" value="${r.ate ? fmtData(r.ate) : ''}"></label></div>
@@ -121,6 +122,7 @@ export class Visoes {
       try { const res = await fetch('/api/visoes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(v) }); if (res.ok) { const s = await res.json().catch(() => v); await this.carregarListas(); this.aplicar(s && s.id ? s : v); } } catch {} };
     E.querySelector('[data-excluir]').onclick = async () => { const id = this.atual.id; if (id === 'tudo') return; try { await fetch('/api/visoes/' + encodeURIComponent(id), { method: 'DELETE' }); } catch {} await this.carregarListas(); this.aplicar(TUDO); };
   }
+  _maquinas() { const s = this.app.sync?.s; if (s?.maquinas?.length) return s.maquinas; const g = this.app.g; if (!g) return []; const m = new Map(); for (const n of g.nos) for (const x of (n.maquinas || (n.maquina ? [n.maquina] : []))) m.set(x, (m.get(x) || 0) + 1); return [...m].map(([nome, neuronios]) => ({ nome, neuronios })); }
   _desc() { const d = this.e.querySelector('.pv-desc'); if (d) d.textContent = descrever(this.rasc); }
   _tagsTop() { const g = this.app.g; if (!g) return []; const m = new Map(); for (const n of g.nos) for (const t of n.tags || []) { const k = String(t).toUpperCase(); m.set(k, (m.get(k) || 0) + 1); } return [...m].sort((a, b) => b[1] - a[1]).slice(0, 14).map(x => x[0]); }
 }

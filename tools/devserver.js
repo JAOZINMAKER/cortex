@@ -1,5 +1,6 @@
 // Servidor de DESENVOLVIMENTO da interface: proxy para o servidor real (UPSTREAM).
 // Endpoints que o servidor real ainda não tem (responde 404) são simulados aqui:
+// V5 → /api/sync (+ /agora, /exportar, /importar, /maquinas/:id).
 // V4 → /api/config, /api/config/chave, /api/config/testar, /api/temas, /api/skills, /api/cache/limpar.
 // Uso: UPSTREAM=http://127.0.0.1:4793 PORT=4790 node tools/devserver.js
 const http = require('http'), fs = require('fs'), path = require('path'), { WebSocketServer, WebSocket } = require('ws');
@@ -29,6 +30,17 @@ async function simular(req, res, p, corpo) {
   if (p === '/api/config/chave') { const k = String(J().chave || ''); cfg().organizacao.chave = k ? k.slice(0, 6) + '…' + k.slice(-4) : null; salvar(); return json(res, { ok: true, chave: cfg().organizacao.chave }); }
   if (p === '/api/config/testar') return json(res, { ok: true, mensagem: cfg().organizacao.claude ? 'SIMULADO: CLASSIFICAÇÃO DE TESTE OK' : 'CLAUDE DESLIGADO · REGRAS LOCAIS OK (SIMULADO)' });
   if (p === '/api/cache/limpar') return json(res, { ok: true });
+  if (p.startsWith('/api/sync')) {
+    const os = require('os'); const sy = st.sync || (st.sync = { ativo: false, pasta: '', maquina: { id: 'a1b2c3d4-dev', nome: os.hostname().toUpperCase() }, compartilhar: { notas: 'conteudo', git: true, sessoes: true, pastas: true, diario: true }, intervaloMin: 2, ultimaPublicacao: null });
+    const vista = () => ({ ...sy, sugestoes: [{ rotulo: 'ONEDRIVE', caminho: 'C:\\Users\\jaozin\\OneDrive' }, { rotulo: 'GOOGLE DRIVE', caminho: 'G:\\Meu Drive' }], maquinas: sy.ativo ? [{ id: sy.maquina.id, nome: sy.maquina.nome, eu: true, geradoEm: sy.ultimaPublicacao, neuronios: 0, projetos: [], status: 'OK' }] : [] });
+    const b = J();
+    if (p === '/api/sync' && req.method === 'GET') return json(res, vista());
+    if (p === '/api/sync' && req.method === 'POST') { if (b.nome) sy.maquina.nome = b.nome; for (const k of ['ativo', 'pasta', 'intervaloMin']) if (k in b) sy[k] = b[k]; if (b.compartilhar) sy.compartilhar = { ...sy.compartilhar, ...b.compartilhar }; if (sy.ativo && !sy.ultimaPublicacao) sy.ultimaPublicacao = Date.now(); salvar(); return json(res, vista()); }
+    if (p === '/api/sync/agora') { sy.ultimaPublicacao = Date.now(); salvar(); return json(res, vista()); }
+    if (p === '/api/sync/exportar') return json(res, { ok: true, caminho: b.caminho, bytes: 123456 });
+    if (p === '/api/sync/importar') return json(res, { erro: 'simulado: arquivo não encontrado' }, 400);
+    if (p.startsWith('/api/sync/maquinas/')) return json(res, { ok: true });
+  }
   if (p === '/api/temas' && req.method === 'GET') return json(res, { temas: st.temas });
   if (p === '/api/temas' && req.method === 'POST') { const t = J(); st.temas = st.temas.filter(x => x.id !== t.id).concat(t); salvar(); return json(res, t); }
   if (p.startsWith('/api/temas/') && req.method === 'DELETE') { const id = decodeURIComponent(p.split('/')[3]); st.temas = st.temas.filter(x => x.id !== id); salvar(); return json(res, { ok: true }); }
@@ -42,7 +54,7 @@ async function simular(req, res, p, corpo) {
     return json(res, { markdown: `## ${s.titulo} · ${b.projeto}\n\n_(simulado pelo devserver a partir de /api/resumo)_\n\n` + t, dados: {}, registradoEm: b.gravar ? { caminho: 'diario/' + b.projeto + '/revisao.md' } : undefined }); }
   return null;
 }
-const V4 = p => /^\/api\/(config|temas|skills|cache)(\/|$)/.test(p);
+const V4 = p => /^\/api\/(config|temas|skills|cache|sync)(\/|$)/.test(p);
 const srv = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x'); const p = decodeURIComponent(u.pathname);
   try {

@@ -10,6 +10,7 @@ import { grafoBench } from './bench.js';
 import { Visoes, TUDO, vazia } from './visao.js';
 import { Ajustes } from './ajustes.js';
 import { Shell } from './shell.js';
+import { Sync } from './sync.js';
 import { tela, $, el, esc, fmtN, fmtK, fmtData, fmtMs, fmtRel, clamp, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
 
 const DIA = 864e5;
@@ -55,8 +56,8 @@ class Replay {
 
 class App {
   constructor() {
-    this.cerebro = new Cerebro($('#gl')); this.rotulos = new Rotulos(this.cerebro, $('#rotulos'), $('#anel')); this.hud = new Hud(this.cerebro);
-    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this); this.shell = new Shell(this); this.notif = { registroDiario: true, commitNovo: true, sessaoNova: false }; this.fpsMax = 60;
+    this.cerebro = new Cerebro($('#gl')); this.rotulos = new Rotulos(this.cerebro, $('#rotulos'), $('#anel')); this.rotulos.app0 = this; this.hud = new Hud(this.cerebro);
+    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this); this.shell = new Shell(this); this.sync = new Sync(this); this.notif = { registroDiario: true, commitNovo: true, sessaoNova: false }; this.fpsMax = 60;
     this.modo = null; this.carregando = true; this.ultEvento = 0; this.evts = []; this.ws = null;
     this.sobre = [{ id: 'calor', nome: 'CALOR DE ATIVIDADE', tecla: 1 }, { id: 'idade', nome: 'IDADE DAS NOTAS', tecla: 2 }, { id: 'cluster', nome: 'CLUSTERS POR TEMA', tecla: 3 }, { id: 'caminho', nome: 'CAMINHO MAIS CURTO', tecla: 4 }, { id: 'orfaos', nome: 'ÓRFÃOS SEM LIGAÇÃO', tecla: 5 }];
     this._sobreUI(); this._entrada();
@@ -75,10 +76,10 @@ class App {
     this.carregando = true; this.hud.aviso('PROCESSANDO REGISTROS', false);
     if (BENCH) { this.relayout(); this.aplicarGrafo(grafoBench(BENCH, +params.get('sin') || 3)); this.carregando = false; return; }
     for (let k = 0; ; k++) { try { let r = await fetch('/api/status'); if (r.ok) { const st = await r.json(); this.hud.status = { ...this.hud.status, ...st }; break; } r = await fetch('/api/fontes'); if (r.ok) break; } catch {} this.hud.aviso('AGUARDANDO SERVIDOR · TENTATIVA ' + (k + 1), false); await new Promise(r => setTimeout(r, 1500)); }
-    await this.ajustes.carregar(); await this.visoes.carregarListas();
+    await this.ajustes.carregar(); await this.visoes.carregarListas(); await this.sync.carregar();
     const vi = this.ajustes.a.visaoInicial; const v0 = this.visoes.daUrl() || (vi && vi !== 'tudo' ? { id: vi, _soId: true } : TUDO);
     for (let k = 0; k < 20 && !this.g; k++) { await this.visoes.aplicar(v0, { url: !!this.visoes.daUrl() }); if (!this.g) await new Promise(r => setTimeout(r, 1500)); }
-    this.carregando = false; this.shell.rotear();
+    this.carregando = false; this.shell.rotear(); this.sync.boasVindas();
     try { const c = await fetch('/api/config'); if (c.ok) { const d = await c.json(); if (d.notificacoes) Object.assign(this.notif, d.notificacoes); if (d.desempenho) { if (d.desempenho.fpsMax) this.fpsMax = d.desempenho.fpsMax; this.cerebro.limite = d.desempenho.limiteNeuronios; this.cerebro.qualidade = d.desempenho.qualidadeSinapses; } if (d.cerebro?.velocidadeReplay) this.replay.setVel(d.cerebro.velocidadeReplay); } } catch {}
   }
   // área livre do canvas conforme os painéis visíveis
@@ -101,7 +102,7 @@ class App {
     this._fontesUI();
     const k = g.contadores; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: `${ant ? 'GRAFO ATUALIZADO' : 'GRAFO CARREGADO'} V${g.versao} · ${fmtN(k.neuronios)} NEURÔNIOS · ${fmtN(k.sinapses)} SINAPSES · ${g.regioes.length} REGIÕES` });
     if (this.cerebro.foco >= 0 && this.painel.n) this.painel.abrir(this.cerebro.foco);
-    this.visoes._seletor();
+    this.visoes._seletor(); if (this.sync) this.sync.boasVindas();
   }
   acharTitulo(t) { return this.porTitulo.get(String(t).trim().toLowerCase()) || null; }
   acharCaminho(p) { if (!p) return null; const s = String(p).replace(/\\/g, '/').toLowerCase(); if (this.porCaminho.has(s)) return this.porCaminho.get(s); for (const [k, v] of this.porCaminho) if (k.endsWith('/' + s) || s.endsWith(k)) return v; return null; }
@@ -114,13 +115,15 @@ class App {
   }
   async mensagem(d) {
     if (d.tipo === 'config' && d.config) { if (d.config.notificacoes) Object.assign(this.notif, d.config.notificacoes); return; }
+    if (d.tipo === 'sync') { const { tipo, ...s } = d; this.sync.atualizar(s.sync || s); return; }
     if (d.tipo === 'temas') { try { const r = await fetch('/api/temas'); const t = await r.json(); for (const x of t.temas || []) tema.registrar(x); } catch {} return; }
     if (d.tipo === 'evento') {
       const i = d.id != null ? this.cerebro.ids.get(d.id) : undefined; const hist = d.nivel === 'HIST';
       this.hud.log(d, !hist); this.maquina.evento(d);
       if (i != null && (!hist || Math.random() < 0.5)) this.cerebro.pulsar(i, d.nivel);
       if (!hist) { this.ultEvento = performance.now(); this.som.clique(d.nivel); this.evts.push(performance.now());
-        if (this.notif.registroDiario && d.fonte === 'diario' && /NASCEU|REGISTR/i.test(d.msg || '')) this.toast('DIÁRIO', d.msg, d.id);
+        if (/RECEBIDO DE/i.test(d.msg || '')) this.toast('SINCRONIZAÇÃO', d.msg);
+        else if (this.notif.registroDiario && d.fonte === 'diario' && /NASCEU|REGISTR/i.test(d.msg || '')) this.toast('DIÁRIO', d.msg, d.id);
         else if (this.notif.commitNovo && d.fonte === 'git' && /COMMIT/i.test(d.msg || '') && !/LENDO|OK/.test(d.msg)) this.toast('COMMIT NOVO', d.msg, d.id); }
     } else if (d.tipo === 'status') this.hud.status = d;
     else if (d.tipo === 'maquina') this.maquina.atualizar(d);
@@ -193,7 +196,7 @@ class App {
   _dica() {
     const d = $('#dica'); if (!this.mouse || this.comando.aberto) { d.style.display = 'none'; return; }
     const i = this.cerebro.pegar(this.mouse[0], this.mouse[1], 10); if (i < 0) { d.style.display = 'none'; this.dicaI = -1; return; }
-    if (this.dicaI !== i) { const n = this.g.nos[i]; this.dicaI = i; d.innerHTML = `<div class="t">${n.idCurto} · ${esc(n.titulo.slice(0, 54))}</div><div class="x">${TIPO_ROT[n.tipo]} · ${rotFonte(n)} · ${fmtData(n.criado)} · G${n.grau} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'}</div><div class="x">${esc(n.regiao)} · #${esc(n.hash)}</div>`; }
+    if (this.dicaI !== i) { const n = this.g.nos[i]; this.dicaI = i; d.innerHTML = `<div class="t">${n.idCurto} · ${esc(n.titulo.slice(0, 54))}</div><div class="x">${TIPO_ROT[n.tipo]} · ${rotFonte(n)} · ${fmtData(n.criado)} · G${n.grau} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'}</div><div class="x">${esc(n.regiao)} · #${esc(n.hash)}</div>${this.sync.remoto(n) ? `<div class="x pc">DE: ${esc(this.sync.origem(n).join(' + '))}</div>` : ''}`; }
     d.style.display = 'block'; d.style.left = (this.mouse[0] + 14) + 'px'; d.style.top = (this.mouse[1] + 14) + 'px';
   }
   // ---------------------------------------------------------------- laço

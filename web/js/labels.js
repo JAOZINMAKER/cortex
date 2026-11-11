@@ -96,16 +96,16 @@ export class Rotulos {
       for (let k = 0; k < cand.length && usados < maxTotal; k++) {
         const i = cand[k][1]; const n = g.nos[i]; const x = sx[i], y = sy[i];
         if (!livre(x - 3, y - 3, 6, 6)) continue; // o próprio marcador precisa de espaço
-        const meta = `${fmtData(n.criado)} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'} · G${n.grau} · ${rotFonte(n)}`;
-        const tL = n.titulo.length > 42 ? n.titulo.slice(0, 41) + '…' : n.titulo, tC = n.titulo.length > 20 ? n.titulo.slice(0, 19) + '…' : n.titulo;
+        const rem = this.app0 && this.app0.sync.remoto(n); const meta = `${fmtData(n.criado)} · ${fmtN(n.palavras)}${n.tipo === 'commit' ? 'L' : 'P'} · G${n.grau} · ${rotFonte(n)}${rem ? ' · DE ' + (n.maquina || n.maquinas[0]) : ''}`;
+        const pcTag = rem ? `<s>${esc(String(n.maquina || n.maquinas[0]).slice(0, 14))}</s>` : ''; const tL = n.titulo.length > 42 ? n.titulo.slice(0, 41) + '…' : n.titulo, tC = n.titulo.length > 20 ? n.titulo.slice(0, 19) + '…' : n.titulo;
         const camadas = [cheios < maxCheio ? 0 : -1, 1, 2].filter(v => v >= 0); let nivel = -1, w = 0;
-        for (const v of camadas) { const txt = v === 0 ? `${n.idCurto} ${tL} ${meta}` : v === 1 ? `${n.idCurto} ${tC}` : n.idCurto; w = Math.ceil(txt.length * cw + 8); if (livre(x - 3, y - 6, w + 6, 12)) { nivel = v; break; } }
+        for (const v of camadas) { const pcx = rem ? (v === 2 ? '◇ ' : String(n.maquina || n.maquinas[0]).slice(0, 14) + '  ') : ''; const txt = pcx + (v === 0 ? `${n.idCurto} ${tL} ${meta}` : v === 1 ? `${n.idCurto} ${tC}` : n.idCurto); w = Math.ceil(txt.length * cw + 8); if (livre(x - 3, y - 6, w + 6, 12)) { nivel = v; break; } }
         if (nivel < 0) continue; marca(x - 3, y - 6, w + 6, 12); if (nivel === 0) cheios++;
-        const e = this.nr[usados]; const chave = i * 4 + nivel;
+        const e = this.nr[usados]; const chave = i * 8 + nivel + (rem ? 4 : 0);
         if (this.atual[usados] !== chave) {
           this.atual[usados] = chave;
-          e.className = 'nr f-' + n.fonte + (n.diario ? ' diario' : '') + (nivel === 0 ? '' : nivel === 1 ? ' peq' : ' peq marc');
-          e.innerHTML = nivel === 0 ? `<span class="c"><b>${n.idCurto}</b> ${esc(tL)} <i>${meta}</i></span>` : nivel === 1 ? `<span class="c"><b>${n.idCurto}</b> ${esc(tC)}</span>` : `<span class="c"><b>${n.idCurto}</b></span>`;
+          e.className = 'nr f-' + n.fonte + (n.diario ? ' diario' : '') + (rem ? ' remoto' : '') + (nivel === 0 ? '' : nivel === 1 ? ' peq' : ' peq marc');
+          e.innerHTML = nivel === 0 ? `<span class="c">${pcTag}<b>${n.idCurto}</b> ${esc(tL)} <i>${meta}</i></span>` : nivel === 1 ? `<span class="c">${pcTag}<b>${n.idCurto}</b> ${esc(tC)}</span>` : `<span class="c">${rem ? '<s>◇</s>' : ''}<b>${n.idCurto}</b></span>`;
           e.firstChild.style.maxWidth = w + 'px';
         }
         e.style.display = ''; e.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
@@ -181,10 +181,10 @@ export class Rotulos {
     // campos radiais
     const tags = (d?.maquina?.tags || n.tags || []).slice(0, 5).join(' ').toUpperCase();
     const campos = [
-      ['HASH', n.hash], [n.diario ? 'REGISTRADO POR' : 'AUTOR', n.autor], ['CRIADO', fmtDataHora(n.criado)], ['MODIF.', fmtDataHora(n.modificado) + ' · ' + fmtRel(n.modificado)],
+      ...(this.app0 && this.app0.sync.remoto(n) ? [['DE', this.app0.sync.origem(n).join(' + ')]] : []), ['HASH', n.hash], [n.diario ? 'REGISTRADO POR' : 'AUTOR', n.autor], ['CRIADO', fmtDataHora(n.criado)], ['MODIF.', fmtDataHora(n.modificado) + ' · ' + fmtRel(n.modificado)],
       ['TAGS MÁQ.', tags || '—'], ['CAMINHO', n.caminho || '—'], ['REGIÃO', n.regiao + ' / ' + (n.subregiao || '')], ['GRAU · PALAVRAS', `${n.grau} · ${fmtN(n.palavras)}`]
     ];
-    const angs = [-56, -30, -4, 22, 48, 160, 196, 222];
+    const angs = campos.length > 8 ? [-60, -36, -12, 12, 36, 60, 150, 180, 210] : [-56, -30, -4, 22, 48, 160, 196, 222];
     campos.forEach(([k, v], j) => {
       const a = angs[j] * Math.PI / 180; const dir = Math.cos(a) >= 0 ? 1 : -1; const x0 = Math.cos(a) * (R + 12), y0 = Math.sin(a) * (R + 12), x1 = dir * (R + 46), y1 = y0;
       add('line', { x1: Math.cos(a) * R, y1: Math.sin(a) * R, x2: x0, y2: y0, class: 's-t', 'stroke-width': 1 });

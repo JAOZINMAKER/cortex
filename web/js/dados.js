@@ -18,8 +18,8 @@ export function estatisticas(g) {
   for (const n of g.nos) { if (n.tipo === 'dia') continue; const p = n.pos; b.x0 = Math.min(b.x0, p[0]); b.x1 = Math.max(b.x1, p[0]); b.z0 = Math.min(b.z0, p[2]); b.z1 = Math.max(b.z1, p[2]); b.y0 = Math.min(b.y0, p[1]); b.y1 = Math.max(b.y1, p[1]); }
   for (const n of g.nos) {
     if (n.tipo === 'dia') continue; const k = projDe(n);
-    let o = m.get(k); if (!o) m.set(k, o = { nome: k, neuronios: 0, notas: 0, commits: 0, sessoes: 0, diario: 0, horasIA: 0, ultimoPulso: 0, d30: new Array(30).fill(0), pts: [], regiao: n.regiao });
-    o.neuronios++; if (n.tipo === 'nota') o.notas++; if (n.tipo === 'commit') o.commits++; if (n.tipo === 'sessao') { o.sessoes++; o.horasIA += Math.max(0, Math.min(12 * 3600e3, (n.modificado || 0) - (n.criado || 0))) / 3600e3; } if (n.fonte === 'diario' || n.diario) o.diario++;
+    let o = m.get(k); if (!o) m.set(k, o = { nome: k, neuronios: 0, notas: 0, commits: 0, sessoes: 0, diario: 0, horasIA: 0, ultimoPulso: 0, d30: new Array(30).fill(0), pts: [], regiao: n.regiao, pcs: new Map() });
+    o.neuronios++; for (const pc of (n.maquinas && n.maquinas.length ? n.maquinas : n.maquina ? [n.maquina] : [])) o.pcs.set(pc, (o.pcs.get(pc) || 0) + 1); if (n.tipo === 'nota') o.notas++; if (n.tipo === 'commit') o.commits++; if (n.tipo === 'sessao') { o.sessoes++; o.horasIA += Math.max(0, Math.min(12 * 3600e3, (n.modificado || 0) - (n.criado || 0))) / 3600e3; } if (n.fonte === 'diario' || n.diario) o.diario++;
     const t = n.modificado || n.criado; o.ultimoPulso = Math.max(o.ultimoPulso, t || 0); if (t >= ini) o.d30[Math.min(29, Math.floor((t - ini) / DIA))]++;
     if (o.pts.length < 900 || Math.random() < 900 / o.neuronios) o.pts.push(n.pos);
   }
