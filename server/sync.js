@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const chokidar = require('chokidar');
 const config = require('./config');
+const gh = require('./sync-github');
 const { readJSON, writeJSON, slug } = require('./util');
 
 const gzip = promisify(zlib.gzip);
@@ -23,13 +24,17 @@ const FORMATO_PARTE = 2; // manifesto + uma parte por fonte
 const MAX_CONTEUDO = 200 * 1024;
 const ANTIGO_MS = 14 * 864e5;
 const TIPOS_SIN = ['LINK', 'EMBED', 'PAI', 'TOCA', 'SEQ', 'DIA', 'BRANCH', 'TAG'];
-const PADRAO = { ativo: false, pasta: null, intervaloMin: 2, compartilhar: { notas: 'conteudo', git: true, sessoes: true, pastas: true, diario: true }, esquecidas: [] };
+// V6: modo "github" é o padrão (repo privado <usuario>/cortex-dados); "pasta" (OneDrive etc.) fica como avançado
+const PADRAO = { ativo: false, modo: 'github', repo: null, repoUrl: null, pasta: null, intervaloMin: 2, compartilhar: { notas: 'conteudo', git: true, sessoes: true, pastas: true, diario: true }, esquecidas: [] };
+const FETCH_MS = () => Number(process.env.CORTEX_GITHUB_FETCH_MS) || 60000;
 
 let ctx = null; // { log, telemetry, aoMudarRemotos(motivo), obterGrafo(), broadcast(msg), versaoApp }
 let maq = null;
 const remotos = new Map(); // id -> { id, nome, origem, dir, arquivo, mtimeMs, size, status, erro, geradoEm, manifesto, pacote, parcial }
 let watcher = null;
-let timerPub = null, timerRetry = null, timerVarredura = null;
+let timerPub = null, timerRetry = null, timerVarredura = null, timerGithub = null;
+let refsGithub = []; // [{ id, ref, commit }] do último fetch
+let blobsPublicados = new Map(); // modo github: arquivo -> blob sha da minha branch
 let ultimaPublicacao = null, publicando = null, erro = null;
 
 // ------------------------------------------------------------ identidade e config
@@ -51,6 +56,13 @@ function cfg() {
 }
 
 const raizSync = () => { const c = cfg(); return c.pasta ? path.join(c.pasta, 'CORTEX-SYNC') : null; };
+const modoGithub = () => cfg().modo !== 'pasta';
+// pronto para publicar/ler: github com credencial e repo OK, ou pasta escolhida
+function transporteAtivo() {
+  const c = cfg();
+  if (!c.ativo) return false;
+  return modoGithub() ? gh.pronto() : !!c.pasta;
+}
 const pastaImportados = () => path.join(config.DADOS_DIR, 'importados');
 
 // sugestões de pasta já sincronizada por um serviço de nuvem (só as que existem)
@@ -245,17 +257,26 @@ let timerConvergir = null; // arquivo -> entrada do manifesto já escrita
 async function publicar({ forcar = false, motivo = '' } = {}) {
   const c = cfg();
   const G = ctx && ctx.obterGrafo();
-  if (!c.ativo || !c.pasta || !G) return null;
+  if (!transporteAtivo() || !G) return null;
   if (publicando) return publicando;
+  const github = modoGithub();
   publicando = (async () => {
     try {
       const t0 = Date.now();
-      const dir = path.join(raizSync(), 'maquinas', maquina().id);
+      const dir = github ? null : path.join(raizSync(), 'maquinas', maquina().id);
       if (!partesPublicadas.size && !forcar) {
-        // reabriu o app: aproveita o manifesto que já está na pasta
-        const man = readJSON(path.join(dir, 'manifesto.json'), null);
-        if (man && man.formato === FORMATO_PARTE && Array.isArray(man.partes)) for (const p of man.partes) if (fs.existsSync(path.join(dir, p.arquivo))) partesPublicadas.set(p.arquivo, p);
+        // reabriu o app: aproveita o manifesto já publicado (na pasta ou na minha branch do GitHub)
+        let man = null;
+        if (github) {
+          blobsPublicados = await gh.minhaArvore(maquina().id);
+          if (blobsPublicados.has('manifesto.json')) { try { man = JSON.parse((await gh.blob(blobsPublicados.get('manifesto.json'))).toString('utf8')); } catch { man = null; } }
+          if (man && man.formato === FORMATO_PARTE && Array.isArray(man.partes)) for (const p of man.partes) if (blobsPublicados.has(p.arquivo)) partesPublicadas.set(p.arquivo, p);
+        } else {
+          man = readJSON(path.join(dir, 'manifesto.json'), null);
+          if (man && man.formato === FORMATO_PARTE && Array.isArray(man.partes)) for (const p of man.partes) if (fs.existsSync(path.join(dir, p.arquivo))) partesPublicadas.set(p.arquivo, p);
+        }
       }
+      const novosGit = new Map(); // modo github: arquivo -> Buffer
       const gs = grupos(G);
       const info = fontesInfo();
       const partes = [];
@@ -270,7 +291,8 @@ async function publicar({ forcar = false, motivo = '' } = {}) {
         const f = info.get(fonteId) || { tipo: '?', projeto: null };
         const parte = { formato: FORMATO_PARTE, maquina: maquina(), fonte: { id: fonteId, tipo: f.tipo, projeto: f.projeto || null }, hash, geradoEm: Date.now(), ...corpo };
         const gz = await gzip(Buffer.from(JSON.stringify(parte)), { level: 6 });
-        await escreverAtomico(path.join(dir, arquivo), gz);
+        if (github) novosGit.set(arquivo, gz);
+        else await escreverAtomico(path.join(dir, arquivo), gz);
         const { c: cont, projetos } = contadoresParte(corpo.nos);
         const entrada = { arquivo, fonte: fonteId, tipo: f.tipo, projeto: f.projeto || null, hash, neuronios: corpo.nos.length, sinapses: corpo.sinapses.length, bytes: gz.length, geradoEm: parte.geradoEm, contadores: cont, projetos };
         partes.push(entrada);
@@ -280,23 +302,37 @@ async function publicar({ forcar = false, motivo = '' } = {}) {
       // partes de fontes que sumiram (ou que deixaram de ser compartilhadas)
       const atuais = new Set(partes.map((p) => p.arquivo));
       let removidas = 0;
-      for (const arq of [...partesPublicadas.keys()]) if (!atuais.has(arq)) { try { fs.rmSync(path.join(dir, arq), { force: true }); } catch { /* já foi */ } removidas++; }
+      for (const arq of [...partesPublicadas.keys()]) if (!atuais.has(arq)) { if (!github) { try { fs.rmSync(path.join(dir, arq), { force: true }); } catch { /* já foi */ } } removidas++; }
       if (!escritas.length && !removidas && partesPublicadas.size && !forcar) return { pulado: true };
       const man = manifestoBase(partes);
       const manTxt = JSON.stringify(man, null, 2);
-      await escreverAtomico(path.join(dir, 'manifesto.json'), manTxt); // manifesto por último: quem lê nunca vê hash de parte que ainda não existe
-      try { fs.rmSync(path.join(dir, 'pacote.json.gz'), { force: true }); } catch { /* formato antigo */ }
+      if (github) {
+        // um commit órfão com todas as partes (as inalteradas reaproveitam o blob já publicado)
+        const manter = new Map();
+        for (const p of partes) if (!novosGit.has(p.arquivo) && blobsPublicados.has(p.arquivo)) manter.set(p.arquivo, blobsPublicados.get(p.arquivo));
+        for (const p of partes) if (!novosGit.has(p.arquivo) && !manter.has(p.arquivo)) throw new Error(`parte ${p.arquivo} sumiu do clone local; republicando tudo na próxima`);
+        novosGit.set('manifesto.json', Buffer.from(manTxt));
+        const r = await gh.publicar(maquina().id, novosGit, manter);
+        blobsPublicados = await gh.minhaArvore(maquina().id);
+        if (!r.mudou && !forcar) { partesPublicadas = new Map(partes.map((p) => [p.arquivo, p])); return { pulado: true, motivo: 'árvore igual à publicada' }; }
+      } else {
+        await escreverAtomico(path.join(dir, 'manifesto.json'), manTxt); // manifesto por último: quem lê nunca vê hash de parte que ainda não existe
+        try { fs.rmSync(path.join(dir, 'pacote.json.gz'), { force: true }); } catch { /* formato antigo */ }
+        garantirLeiaMe();
+      }
       partesPublicadas = new Map(partes.map((p) => [p.arquivo, p]));
-      garantirLeiaMe();
       const total = partes.reduce((a, p) => a + p.bytes, 0);
       ultimaPublicacao = { em: Date.now(), neuronios: man.contadores.neuronios, sinapses: partes.reduce((a, p) => a + p.sinapses, 0), bytes: total,
         bytesEscritos: bytesEscritos + manTxt.length, partesEscritas: escritas.map((p) => p.arquivo), partes: partes.length, ms: Date.now() - t0 };
       erro = null;
-      ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `PUBLICADO · ${escritas.length} DE ${partes.length} PARTES · ${(bytesEscritos / 1024).toFixed(0)} KB ENVIADOS${motivo ? ' · ' + motivo.toUpperCase() : ''}` });
+      ultimaPublicacao.via = github ? 'github' : 'pasta';
+      ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `PUBLICADO${github ? ' NO GITHUB' : ''} · ${escritas.length} DE ${partes.length} PARTES · ${(bytesEscritos / 1024).toFixed(0)} KB ENVIADOS${motivo ? ' · ' + motivo.toUpperCase() : ''}` });
       avisar();
+      if (github) setImmediate(() => cicloGithub().catch(() => {})); // logo depois de publicar, vê se os outros mudaram
       return ultimaPublicacao;
     } catch (e) {
-      erro = 'falha ao publicar: ' + e.message;
+      if (github && /sumiu do clone/.test(e.message)) { partesPublicadas = new Map(); blobsPublicados = new Map(); }
+      erro = 'falha ao publicar: ' + gh.limpar(e.message);
       ctx.telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: 'SYNC ' + erro.toUpperCase() });
       avisar();
       return { erro };
@@ -308,7 +344,7 @@ async function publicar({ forcar = false, motivo = '' } = {}) {
 // depois de cada reconstrução: publica, no máximo a cada intervaloMin
 function agendarPublicacao() {
   const c = cfg();
-  if (!c.ativo || !c.pasta || timerPub) return;
+  if (!transporteAtivo() || timerPub) return;
   const intervalo = Math.max(0.25, Number(c.intervaloMin) || 2) * 60000;
   const desde = ultimaPublicacao ? Date.now() - ultimaPublicacao.em : Infinity;
   const espera = desde >= intervalo ? 1500 : intervalo - desde;
@@ -336,7 +372,12 @@ function candidatos() {
   const c = cfg();
   const out = [];
   const eu = maquina().id;
-  if (c.ativo && c.pasta) {
+  if (c.ativo && modoGithub()) {
+    for (const r of refsGithub) {
+      if (r.id === eu || c.esquecidas.includes(r.id)) continue;
+      out.push({ id: r.id, origem: 'github', ref: r.ref, commit: r.commit });
+    }
+  } else if (c.ativo && c.pasta) {
     const dir = path.join(raizSync(), 'maquinas');
     let ents = [];
     try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { ents = []; }
@@ -370,6 +411,7 @@ async function lerPacote(arquivo) {
 // lê uma máquina: manifesto com partes (só as de hash novo) ou pacote único (formato 1 / importado).
 // devolve { mudou, bytes, partesLidas } ou lança erro (o chamador mantém a versão boa anterior)
 async function lerMaquina(c, atual, forcar) {
+  if (c.origem === 'github') return lerMaquinaGithub(c, atual);
   const r = atual && atual.partes ? atual : { id: c.id, nome: c.id.slice(0, 8), origem: c.origem, dir: c.dir, arquivo: c.arquivo, partes: new Map(), status: 'ERRO' };
   let man = null;
   if (c.manifesto) {
@@ -409,6 +451,37 @@ async function lerMaquina(c, atual, forcar) {
   return { r, mudou: true, bytes: st.size, lidas: ['pacote'] };
 }
 
+// branch maquina/<id> no GitHub: lê o manifesto e só as partes cujo blob mudou
+async function lerMaquinaGithub(c, atual) {
+  const r = atual && atual.partes ? atual : { id: c.id, nome: c.id.slice(0, 8), origem: 'github', partes: new Map(), status: 'ERRO' };
+  if (r.commit === c.commit && r.partes.size) return { r, mudou: false, bytes: 0, lidas: [] };
+  const arv = await gh.arvore(c.ref);
+  if (!arv.has('manifesto.json')) throw Object.assign(new Error('branch sem manifesto'), { semPacote: true });
+  const man = JSON.parse((await gh.blob(arv.get('manifesto.json'))).toString('utf8'));
+  if (man.id === maquina().id) return { eu: true };
+  if (man.formato !== FORMATO_PARTE || !Array.isArray(man.partes)) throw new Error(`formato desconhecido (${man.formato})`);
+  let mudou = false, bytes = 0;
+  const lidas = [];
+  const novas = new Map();
+  for (const p of man.partes) {
+    const sha = arv.get(p.arquivo);
+    if (!sha) throw new Error(`parte ${p.arquivo} ausente no commit`);
+    const ja = r.partes.get(p.arquivo);
+    if (ja && (ja.blob === sha || ja.hash === p.hash)) { novas.set(p.arquivo, { ...ja, blob: sha }); continue; } // mesmo blob: não lê de novo
+    const buf = await gh.blob(sha);
+    const parte = JSON.parse((buf[0] === 0x1f && buf[1] === 0x8b ? await gunzip(buf) : buf).toString('utf8'));
+    if (!parte || parte.formato !== FORMATO_PARTE || parte.hash !== p.hash) throw new Error(`parte ${p.arquivo} inconsistente com o manifesto`);
+    novas.set(p.arquivo, { hash: p.hash, blob: sha, pacote: parte, parcial: null, bytes: buf.length });
+    bytes += buf.length;
+    lidas.push(p.arquivo);
+    mudou = true;
+  }
+  if (novas.size !== r.partes.size || [...r.partes.keys()].some((k) => !novas.has(k))) mudou = true;
+  Object.assign(r, { nome: man.nome || r.nome, partes: novas, commit: c.commit, geradoEm: man.geradoEm, versaoApp: man.versaoApp, status: Date.now() - man.geradoEm > ANTIGO_MS ? 'ANTIGO' : 'OK', formato: FORMATO_PARTE });
+  delete r.erro;
+  return { r, mudou, bytes, lidas };
+}
+
 // relê o que mudou; devolve true se algo entrou ou saiu. forcar: relê tudo (inclusive o que falhou antes)
 async function lerRemotos(forcar = false) {
   const cands = candidatos();
@@ -438,7 +511,13 @@ async function lerRemotos(forcar = false) {
       falhou = true;
     }
   }
-  for (const id of [...remotos.keys()]) if (!vistos.has(id)) { remotos.delete(id); mudou = true; }
+  // GitHub fora do ar / sem credencial: mantém o que já foi lido (não some com os outros PCs por falta de rede)
+  const manterGithub = modoGithub() && cfg().ativo && !gh.pronto();
+  for (const [id, r] of [...remotos.entries()]) {
+    if (vistos.has(id)) continue;
+    if (manterGithub && r.origem === 'github') continue;
+    remotos.delete(id); mudou = true;
+  }
   if (falhou && !timerRetry && ctx) {
     timerRetry = setTimeout(async () => {
       timerRetry = null;
@@ -494,14 +573,52 @@ const projetosDe = (r) => [...new Set([...(r.partes || new Map()).values()].flat
 
 function statusRemotos() {
   return [...remotos.values()].map((r) => ({ id: 'rem_' + r.id, tipo: 'remoto', caminho: r.dir || r.arquivo, projeto: null, maquina: r.nome, origem: r.origem,
-    status: r.partes && r.partes.size ? r.status : 'ERRO', itens: neuroniosDe(r), partes: r.partes ? r.partes.size : 0, ...(r.erro ? { erro: r.erro } : {}), interno: true }));
+    status: (r.partes && r.partes.size) || r.formato ? r.status : 'ERRO', itens: neuroniosDe(r), partes: r.partes ? r.partes.size : 0, ...(r.erro ? { erro: r.erro } : {}), interno: true }));
 }
 
 // ------------------------------------------------------------ vigilância da pasta
+// modo github: fetch a cada 60 s (e logo depois de publicar); tenta preparar de novo se faltou rede/credencial
+let cicloRodando = null;
+let ciclos = 0;
+async function cicloGithub() {
+  if (!ctx || !modoGithub() || !cfg().ativo) return false;
+  if (cicloRodando) return cicloRodando;
+  cicloRodando = (async () => {
+    try {
+      if (!gh.pronto()) {
+        const antes = gh.estado().estado;
+        await gh.preparar(cfg());
+        if (gh.pronto() && antes !== 'OK') {
+          ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `SYNC GITHUB PRONTO · ${gh.estado().repo}${gh.estado().usuario ? ' · ' + gh.estado().usuario : ''}` });
+          partesPublicadas = new Map();
+          agendarPublicacao();
+        }
+        avisar();
+        if (!gh.pronto()) return false;
+      }
+      const antes = JSON.stringify(refsGithub);
+      try { refsGithub = await gh.buscar(); } catch { avisar(); return false; } // sem rede: tenta no próximo ciclo
+      if (++ciclos % 60 === 0) gh.limparObjetos(); // commits órfãos antigos (meus e dos outros) não acumulam no clone
+      if (JSON.stringify(refsGithub) === antes && remotos.size) { avisar(); return false; }
+      const mudou = await lerRemotos();
+      if (mudou) await ctx.aoMudarRemotos('recebido do GitHub');
+      avisar();
+      return mudou;
+    } finally { cicloRodando = null; }
+  })();
+  return cicloRodando;
+}
+
 function vigiar() {
   pararVigia();
   const c = cfg();
-  if (!c.ativo || !c.pasta) return;
+  if (!c.ativo) return;
+  if (modoGithub()) {
+    timerGithub = setInterval(() => { cicloGithub().catch(() => {}); }, FETCH_MS());
+    timerGithub.unref();
+    return;
+  }
+  if (!c.pasta) return;
   const dir = path.join(raizSync(), 'maquinas');
   try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { erro = 'pasta de sync inacessível: ' + e.message; avisar(); return; }
   let t = null;
@@ -519,6 +636,7 @@ function vigiar() {
 }
 
 function pararVigia() {
+  clearInterval(timerGithub); timerGithub = null;
   if (watcher) { watcher.close().catch(() => {}); watcher = null; }
   clearInterval(timerVarredura); timerVarredura = null;
 }
@@ -528,19 +646,20 @@ function estado() {
   const c = cfg();
   const eu = maquina();
   const maquinas = [];
-  if (c.ativo && c.pasta) maquinas.push({ id: eu.id, nome: eu.nome, eu: true, geradoEm: ultimaPublicacao ? ultimaPublicacao.em : null, neuronios: ultimaPublicacao ? ultimaPublicacao.neuronios : 0,
+  if (transporteAtivo() || (c.ativo && ultimaPublicacao)) maquinas.push({ id: eu.id, nome: eu.nome, eu: true, geradoEm: ultimaPublicacao ? ultimaPublicacao.em : null, neuronios: ultimaPublicacao ? ultimaPublicacao.neuronios : 0,
     partes: partesPublicadas.size,
     projetos: null, status: erro ? 'ERRO' : 'OK', origem: 'local' });
   for (const r of remotos.values()) {
-    const tem = r.partes && r.partes.size > 0;
+    const tem = (r.partes && r.partes.size > 0) || !!r.formato; // manifesto lido (mesmo sem partes: PC sem fontes)
     maquinas.push({ id: r.id, nome: r.nome, eu: false, geradoEm: r.geradoEm || null, neuronios: neuroniosDe(r), partes: r.partes ? r.partes.size : 0,
-      projetos: projetosDe(r), status: tem ? r.status : 'ERRO', origem: r.origem, ...(r.erro ? { erro: r.erro } : {}) });
+      projetos: projetosDe(r), status: tem && !r.erro ? r.status : (tem ? r.status : 'ERRO'), origem: r.origem, ...(r.erro ? { erro: r.erro } : {}) });
   }
   if (eu && maquinas.length && maquinas[0].eu) {
     const G = ctx && ctx.obterGrafo();
     if (G) maquinas[0].projetos = [...new Set(G.interno.nos.filter((n) => n._origemLocal && n.tipo !== 'dia').map((n) => G.interno.nomeProj.get(n.projeto) || n.projeto))].sort();
   }
-  return { ativo: !!c.ativo, pasta: c.pasta, maquina: { id: eu.id, nome: eu.nome }, compartilhar: c.compartilhar, intervaloMin: c.intervaloMin,
+  return { ativo: !!c.ativo, modo: modoGithub() ? 'github' : 'pasta', github: { ...gh.estado(), repoConfigurado: c.repo || null, ...(c.repoUrl ? { repoUrl: c.repoUrl } : {}) },
+    pasta: c.pasta, maquina: { id: eu.id, nome: eu.nome }, compartilhar: c.compartilhar, intervaloMin: c.intervaloMin,
     ultimaPublicacao, ...(erro ? { erro } : {}), sugestoes: sugestoes(), maquinas,
     diagnostico: { pastaOneDrive: pastaOneDrive(), outrasMaquinasNaPasta: cfg().pasta ? outrasMaquinasEm(cfg().pasta) : 0, contaOneDrive: process.env.OneDrive || null } };
 }
@@ -573,7 +692,19 @@ function validar(o) {
       for (const k of ['git', 'sessoes', 'pastas', 'diario']) if (cp[k] !== undefined) { if (typeof cp[k] !== 'boolean') erros.push({ campo: 'sync.compartilhar.' + k, erro: 'precisa ser verdadeiro/falso' }); else novo.compartilhar[k] = cp[k]; }
     }
   }
-  if (novo.ativo === true && !(novo.pasta || cfg().pasta)) erros.push({ campo: 'sync.pasta', erro: 'escolha uma pasta antes de ligar' });
+  if (o.modo !== undefined) { if (!['github', 'pasta'].includes(o.modo)) erros.push({ campo: 'sync.modo', erro: 'use github ou pasta' }); else novo.modo = o.modo; }
+  if (o.repo !== undefined) {
+    if (o.repo === null || o.repo === '') novo.repo = null;
+    else if (typeof o.repo !== 'string' || !/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(o.repo.trim())) erros.push({ campo: 'sync.repo', erro: 'use usuario/repositorio' });
+    else novo.repo = o.repo.trim();
+  }
+  if (o.repoUrl !== undefined) {
+    if (o.repoUrl === null || o.repoUrl === '') novo.repoUrl = null;
+    else if (typeof o.repoUrl !== 'string' || /\/\/[^/]*@/.test(o.repoUrl)) erros.push({ campo: 'sync.repoUrl', erro: 'URL inválida (não coloque usuário/token na URL)' });
+    else novo.repoUrl = o.repoUrl.trim();
+  }
+  const modoFinal = novo.modo || cfg().modo;
+  if (novo.ativo === true && modoFinal === 'pasta' && !(novo.pasta || cfg().pasta)) erros.push({ campo: 'sync.pasta', erro: 'escolha uma pasta antes de ligar' });
   return { erros, novo };
 }
 
@@ -590,25 +721,31 @@ async function definir(o) {
     mudancas.push('sync.nome');
   }
   const s = { ...antes, ...(c.sync || {}) };
-  for (const k of ['ativo', 'pasta', 'intervaloMin']) if (novo[k] !== undefined && novo[k] !== antes[k]) { s[k] = novo[k]; mudancas.push('sync.' + k); }
+  for (const k of ['ativo', 'pasta', 'intervaloMin', 'modo', 'repo', 'repoUrl']) if (novo[k] !== undefined && novo[k] !== antes[k]) { s[k] = novo[k]; mudancas.push('sync.' + k); }
+  if (novo.modo !== undefined) s.modoEscolhido = true; // escolha explícita: a migração automática não mexe mais
   if (novo.compartilhar) { const cp = { ...antes.compartilhar, ...novo.compartilhar }; if (JSON.stringify(cp) !== JSON.stringify(antes.compartilhar)) { s.compartilhar = cp; mudancas.push('sync.compartilhar'); } }
-  c.sync = { ativo: s.ativo, pasta: s.pasta, intervaloMin: s.intervaloMin, compartilhar: s.compartilhar, esquecidas: s.esquecidas || [] };
+  c.sync = { ...(c.sync || {}), ativo: s.ativo, modo: s.modo, repo: s.repo || null, repoUrl: s.repoUrl || null, pasta: s.pasta, intervaloMin: s.intervaloMin,
+    compartilhar: s.compartilhar, esquecidas: s.esquecidas || [], ...(s.modoEscolhido ? { modoEscolhido: true } : {}) };
   config.salvar();
-  if (mudancas.some((m) => m === 'sync.ativo' || m === 'sync.pasta' || m === 'sync.intervaloMin')) {
-    // pasta nova (ou religado): o que foi publicado antes não está lá, então publica tudo de novo
-    if (mudancas.includes('sync.pasta') || mudancas.includes('sync.ativo')) partesPublicadas = new Map();
+  const transporteMudou = mudancas.some((m) => ['sync.ativo', 'sync.pasta', 'sync.intervaloMin', 'sync.modo', 'sync.repo', 'sync.repoUrl'].includes(m));
+  if (transporteMudou) {
+    // destino novo (ou religado): o que foi publicado antes não está lá, então publica tudo de novo
+    partesPublicadas = new Map(); blobsPublicados = new Map(); refsGithub = [];
+    remotos.forEach((r, id) => { if (r.origem === 'pasta' || r.origem === 'github') remotos.delete(id); });
+    if (modoGithub() && cfg().ativo) { gh.reiniciar(); await gh.preparar(cfg()); }
     vigiar();
-    remotos.forEach((r, id) => { if (r.origem === 'pasta') remotos.delete(id); });
-    await lerRemotos();
+    if (modoGithub()) await cicloGithub(); else await lerRemotos();
     ctx.aoMudarRemotos('sincronização reconfigurada');
   }
-  if (mudancas.length && cfg().ativo) await publicar({ forcar: mudancas.some((m) => m === 'sync.pasta' || m === 'sync.compartilhar' || m === 'sync.nome'), motivo: 'configuração' });
+  if (mudancas.length && transporteAtivo()) await publicar({ forcar: mudancas.some((m) => ['sync.pasta', 'sync.compartilhar', 'sync.nome', 'sync.modo', 'sync.repo', 'sync.repoUrl'].includes(m)), motivo: 'configuração' });
   avisar();
   return { mudancas };
 }
 
 async function agora() {
+  if (modoGithub() && cfg().ativo && !gh.pronto()) await cicloGithub();
   const pub = await publicar({ motivo: 'manual' }); // só as partes que mudaram
+  if (modoGithub()) { try { refsGithub = (await gh.buscar()) || refsGithub; } catch { /* sem rede */ } }
   const mudou = await lerRemotos(true);
   if (mudou) await ctx.aoMudarRemotos('sincronizar agora');
   return { publicado: pub, recebidos: mudou };
@@ -674,6 +811,7 @@ function pastaOneDrive() {
 
 function aplicarSyncAuto() {
   const arq = path.join(config.DADOS_DIR, 'sync-auto.json');
+  if (modoGithub()) { try { fs.rmSync(arq, { force: true }); } catch { /* tanto faz */ } return; } // V6: o GitHub junta os PCs
   let auto = readJSON(arq, null);
   try { fs.rmSync(arq, { force: true }); } catch { /* tanto faz */ }
   const c = config.get();
@@ -697,6 +835,7 @@ function outrasMaquinasEm(pasta) {
 // Se este PC está sozinho na pasta atual e o OneDrive\CORTEX é outro lugar, muda para lá
 // (a escolha manual só é mantida quando ela de fato junta este PC com outro).
 function convergir() {
+  if (modoGithub()) return null; // V6: a convergência para o OneDrive só existe no modo pasta
   const c = config.get();
   const s = c.sync || {};
   if (s.ativo === false && s.pasta) return null; // desligado de propósito
@@ -713,10 +852,42 @@ function convergir() {
   return od;
 }
 
+// Migração 2.2.0: o modo github vira o padrão em todos os PCs, mesmo os que estavam em OneDrive
+// (contas de OneDrive diferentes nunca se juntam; a conta do GitHub é a identidade comum).
+// Sem git: mantém o modo anterior. Sem credencial: fica em github com PRECISA_ENTRAR (e não usa o OneDrive).
+async function migrarModoGithub() {
+  const c = config.get();
+  const s = c.sync || {};
+  if (s.migradoV22 || s.modoEscolhido) return null;
+  if (!(await gh.temGit())) { c.sync = { ...PADRAO, ...s, migradoV22: true, modo: s.pasta ? 'pasta' : 'github' }; config.salvar(); return 'sem-git'; }
+  const antes = s.modo || (s.pasta ? 'pasta' : 'github');
+  c.sync = { ...PADRAO, ...s, modo: 'github', ativo: true, migradoV22: true };
+  config.salvar();
+  ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `SINCRONIZAÇÃO AGORA PELO GITHUB (REPOSITÓRIO PRIVADO)${antes === 'pasta' ? ' · O ONEDRIVE DEIXOU DE SER USADO' : ''}` });
+  return antes;
+}
+
+// login interativo no GitHub (abre o navegador); ao terminar, prepara e sincroniza sozinho
+function entrarGithub() {
+  const r = gh.entrar(async (ok, msg) => {
+    if (!ctx) return;
+    ctx.telemetry.emitir({ nivel: ok ? 'INFO' : 'ALERTA', fonte: 'sistema', msg: ok ? 'GITHUB: LOGIN CONCLUÍDO' : `GITHUB: LOGIN NÃO CONCLUÍDO (${msg || 'cancelado'})` });
+    const c = config.get();
+    if (ok && c.sync && c.sync.ativo === false) { c.sync.ativo = true; config.salvar(); }
+    gh.reiniciar();
+    await cicloGithub().catch(() => {});
+    avisar();
+  });
+  avisar();
+  return { ...r, github: gh.estado() };
+}
+
 async function iniciar(c) {
   ctx = c;
-  maq = null; remotos.clear(); ultimaPublicacao = null; erro = null; partesPublicadas = new Map();
+  maq = null; remotos.clear(); ultimaPublicacao = null; erro = null; partesPublicadas = new Map(); blobsPublicados = new Map(); refsGithub = [];
+  gh.reiniciar();
   maquina();
+  try { await migrarModoGithub(); } catch (e) { ctx.log('sync: migração para o GitHub falhou:', e.message); }
   aplicarSyncAuto();
   convergir();
   // de 5 em 5 min: se outro PC aparecer no OneDrive enquanto este está sozinho noutra pasta, junta
@@ -726,7 +897,10 @@ async function iniciar(c) {
   }, 5 * 60000);
   if (timerConvergir.unref) timerConvergir.unref();
   vigiar();
-  await lerRemotos();
+  if (modoGithub() && cfg().ativo) {
+    // credencial + repositório + fetch em segundo plano: o boot não espera a rede
+    cicloGithub().catch(() => {});
+  } else await lerRemotos();
 }
 
 // ao fechar: publica uma última vez e para de vigiar
@@ -735,8 +909,9 @@ async function parar() {
   clearTimeout(timerPub); timerPub = null;
   clearTimeout(timerRetry); timerRetry = null;
   pararVigia();
-  try { if (ctx && cfg().ativo) await publicar({ motivo: 'encerrando' }); } catch { /* fecha mesmo assim */ }
+  // publica uma última vez, sem segurar o fechamento por mais de 20 s (push lento)
+  try { if (ctx && cfg().ativo) await Promise.race([publicar({ motivo: 'encerrando' }), new Promise((r) => setTimeout(r, 20000).unref())]); } catch { /* fecha mesmo assim */ }
   ctx = null;
 }
 
-module.exports = { iniciar, parar, maquina, cfg, estado, definir, validar, agora, exportar, importar, esquecer, publicar, agendarPublicacao, lerRemotos, parciaisRemotas, statusRemotos, sugestoes, PADRAO };
+module.exports = { entrarGithub, cicloGithub, iniciar, parar, maquina, cfg, estado, definir, validar, agora, exportar, importar, esquecer, publicar, agendarPublicacao, lerRemotos, parciaisRemotas, statusRemotos, sugestoes, PADRAO };

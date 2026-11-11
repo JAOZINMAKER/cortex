@@ -50,7 +50,7 @@ function configPublica() {
     desempenho: { ...c.desempenho },
     notificacoes: { ...c.notificacoes },
     fontes: { apelidos: { ...c.apelidos }, ignorar: [...c.ignorar] },
-    sync: (() => { const s = sync.cfg(); return { ativo: !!s.ativo, pasta: s.pasta, nome: sync.maquina().nome, compartilhar: s.compartilhar, intervaloMin: s.intervaloMin }; })(),
+    sync: (() => { const s = sync.cfg(); return { ativo: !!s.ativo, modo: s.modo === 'pasta' ? 'pasta' : 'github', repo: s.repo || null, repoUrl: s.repoUrl || null, pasta: s.pasta, nome: sync.maquina().nome, compartilhar: s.compartilhar, intervaloMin: s.intervaloMin }; })(),
     caminhos: { appDir: config.APP_DIR, dadosDir: config.DADOS_DIR, configPath: config.CONFIG_PATH, dataDir: config.DATA_DIR, diarioDir: config.DIARIO_DIR },
   };
 }
@@ -281,6 +281,10 @@ async function tratar(p, req, res, url, ctx) {
     const r = await sync.definir(corpo);
     if (r.erros) { json(res, 400, { erro: 'valores inválidos', erros: r.erros }); return true; }
     json(res, 200, { ok: true, mudancas: r.mudancas, ...sync.estado() });
+    return true;
+  }
+  if (p === '/api/sync/github/entrar' && m === 'POST') {
+    json(res, 200, { ok: true, ...sync.entrarGithub() });
     return true;
   }
   if (p === '/api/sync/agora' && m === 'POST') {

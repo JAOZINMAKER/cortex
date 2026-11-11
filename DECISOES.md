@@ -117,3 +117,12 @@ Com 3 PCs, fechar, apagar, baixar e extrair a cada correção era trabalho demai
 - **CLI:** o comando `cortex` aponta para `resources/app/cli-inicio.js`, que escolhe a versão da mesma forma.
 - **Testes:** `CORTEX_VERSOES` troca a pasta de versões. `CORTEX_ATUALIZACAO_MS`, `CORTEX_ATUALIZACAO_ESPERA_MS` e `CORTEX_OCIOSO_MS` encurtam os tempos. `CORTEX_SO_EMBUTIDO=1` ignora as versões baixadas.
 
+
+## D-020 · A sincronização passa a ser pelo GitHub (repositório privado)
+Os 3 PCs do usuário têm contas de OneDrive diferentes, então a sincronização por pasta nunca juntaria os três. A identidade comum é a conta do GitHub (JAOZINMAKER), e o git já está instalado e autenticado em todos. Desde a 2.2.0, o padrão é:
+- **Repositório privado `<usuario>/cortex-dados`**, criado sozinho na primeira vez. O CÓRTEX recusa usar um repositório público para dados.
+- **Uma branch por PC (`maquina/<id>`) com um único commit órfão**, reescrito com `push -f`. Cada PC só escreve na própria branch (sem conflito, como na pasta), e o histórico não cresce. As partes por fonte da V5.1 continuam: uma sessão ativa sobe só ~10 KB.
+- **Credencial do próprio git** (Git Credential Manager), lida sem nunca abrir janela em segundo plano. O token só existe na memória e na linha de comando do fetch/push (`http.extraheader`). Nunca vai para `.git/config` nem para log.
+- **Atualização sem pergunta:** a 2.2.0 chega pelos canais de atualização e troca o modo em todos os PCs com git. Quem não tiver credencial vê "ENTRAR NO GITHUB", e o login abre o navegador uma vez.
+- **O modo pasta continua** como opção avançada, para quem não usa git.
+Por que não usar um servidor próprio: não há conta nova nem custo, e os dados ficam na conta do GitHub que o usuário já controla.
