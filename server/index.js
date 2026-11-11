@@ -60,9 +60,13 @@ let filaReconstrucao = 0;
 let pronto = false;
 // fase: MONTANDO até o primeiro grafo completo; PRONTO depois (reconstruções seguintes não voltam a MONTANDO)
 const fase = () => (pronto ? 'PRONTO' : 'MONTANDO');
+const VERSAO_APP = (() => { try { return require(path.join(__dirname, '..', 'package.json')).version; } catch { return null; } })();
+// só existe quando o servidor roda sozinho (node server/index.js): o app novo pede para ele sair antes de abrir
+let desligarAutonomo = null;
+
 function statusCompleto() {
   const c = G ? G.publico.contadores : null;
-  return { ...telemetry.status(), pronto, fase: fase(), vigilanciaPausada, versao, porta: PORTA, neuronios: c ? c.neuronios : 0, sinapses: c ? c.sinapses : 0, contadores: c };
+  return { ...telemetry.status(), pronto, fase: fase(), vigilanciaPausada, versao, porta: PORTA, versaoApp: VERSAO_APP, pid: process.pid, autonomo: !!desligarAutonomo, neuronios: c ? c.neuronios : 0, sinapses: c ? c.sinapses : 0, contadores: c };
 }
 
 
@@ -796,6 +800,12 @@ async function tratar(req, res) {
     }
     if (p === '/api/maquina') return json(res, 200, maquina(true), req);
     if (p === '/api/status') return json(res, 200, statusCompleto());
+    if (p === '/api/desligar' && req.method === 'POST') {
+      if (!desligarAutonomo) return json(res, 409, { erro: 'este CÓRTEX roda dentro do app; feche pelo app' });
+      json(res, 200, { ok: true, pid: process.pid });
+      setTimeout(desligarAutonomo, 100);
+      return;
+    }
     if (p === '/api/vigilancia' && req.method === 'GET') return json(res, 200, { pausada: vigilanciaPausada });
     if (p === '/api/vigilancia' && req.method === 'POST') {
       const corpo = await lerCorpo(req);
@@ -943,6 +953,7 @@ if (require.main === module) {
   iniciar().then((r) => {
     if (abrir) abrirNavegador(r.url);
     const sair = () => { r.parar().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); };
+    desligarAutonomo = sair;
     process.on('SIGINT', sair);
     process.on('SIGTERM', sair);
   }).catch((e) => {

@@ -65,9 +65,52 @@ async function esperarHttp(ms) {
 // ---------------------------------------------------------------- servidor
 let servidorInterno = null; // { parar? }
 let modo = 'interno';
+const VERSAO_APP = app.getVersion();
+const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// O que está na porta? null = nada; { antigo: true } = CÓRTEX de versão anterior (inclusive o da época do navegador)
+async function quemEstaNaPorta() {
+  const st = await req('GET', '/api/status', null, 1500);
+  if (st.ok && st.json && ('fase' in st.json || 'versao' in st.json)) return { ...st.json, antigo: st.json.versaoApp !== VERSAO_APP };
+  const f = await req('GET', '/api/fontes', null, 1500);
+  if (f.ok && f.json) return { antigo: true };
+  return null;
+}
+
+// PID de quem escuta na porta (Windows: netstat; outros: lsof)
+function pidNaPorta() {
+  try {
+    const { execFileSync } = require('child_process');
+    if (process.platform === 'win32') {
+      const out = execFileSync('netstat', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true });
+      for (const l of out.split(/\r?\n/)) { const m = l.trim().split(/\s+/); if (m.length >= 5 && /LISTEN/i.test(m[3]) && m[1].endsWith(':' + PORTA)) return Number(m[4]); }
+    } else {
+      const out = execFileSync('lsof', ['-t', '-iTCP:' + PORTA, '-sTCP:LISTEN'], { encoding: 'utf8' });
+      return Number(out.trim().split(/\s+/)[0]) || null;
+    }
+  } catch { /* sem netstat/lsof */ }
+  return null;
+}
+
+// Derruba um CÓRTEX antigo que esteja segurando a porta (senão o app novo mostraria a interface velha)
+async function derrubarAntigo() {
+  await req('POST', '/api/desligar', null, 1500);
+  for (let i = 0; i < 12; i++) { await esperar(250); if (!(await quemEstaNaPorta())) return true; }
+  const pid = pidNaPorta();
+  if (pid && pid !== process.pid) {
+    try { if (process.platform === 'win32') require('child_process').execFileSync('taskkill', ['/F', '/PID', String(pid)], { windowsHide: true }); else process.kill(pid, 'SIGTERM'); } catch { /* já saiu */ }
+    for (let i = 0; i < 20; i++) { await esperar(250); if (!(await quemEstaNaPorta())) return true; }
+  }
+  return false;
+}
 
 async function ligarServidor() {
-  if (await ehCortex()) { modo = 'externo'; return; }
+  const la = await quemEstaNaPorta();
+  if (la && !la.antigo) { modo = 'externo'; return; }
+  if (la && la.antigo) {
+    const ok = await derrubarAntigo();
+    if (!ok) throw new Error(`Um CÓRTEX antigo está rodando na porta ${PORTA} e não consegui fechá-lo.\nReinicie o PC (ou finalize os processos "node" no Gerenciador de Tarefas) e abra de novo.`);
+  }
   fs.mkdirSync(DADOS, { recursive: true });
   // compatível com servidores antigos, que só liam variáveis de ambiente
   process.env.CORTEX_CONFIG = CONFIG_PATH;
@@ -82,7 +125,9 @@ async function ligarServidor() {
       servidorInterno = r || {};
     } catch (e) {
       if (e && e.code === 'EADDRINUSE') {
-        if (await esperarHttp(5000)) { modo = 'externo'; return; } // outro CÓRTEX subiu ao mesmo tempo
+        const outro = await quemEstaNaPorta();
+        if (outro && !outro.antigo) { modo = 'externo'; return; } // outro CÓRTEX igual subiu ao mesmo tempo
+        if (outro && outro.antigo && (await derrubarAntigo())) return ligarServidor();
         throw new Error(`A porta ${PORTA} está ocupada por outro programa.\nTroque "porta" em ${CONFIG_PATH} e abra de novo.`);
       }
       throw e;

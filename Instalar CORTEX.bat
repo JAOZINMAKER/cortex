@@ -19,6 +19,11 @@ if not exist "%ORIGEM%\CORTEX.exe" (
 
 echo [CORTEX] Fechando o CORTEX se estiver aberto...
 taskkill /F /IM CORTEX.exe >nul 2>nul
+rem versao antiga (da epoca do navegador): um node rodando server\index.js escondido na porta 4747
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'node.exe' -and $_.CommandLine -match 'server[\\/]index\.js' } |" ^
+  "ForEach-Object { $p = $_; $porta = Get-NetTCPConnection -State Listen -OwningProcess $p.ProcessId -ErrorAction SilentlyContinue | Where-Object LocalPort -eq 4747;" ^
+  "  if ($porta -or $p.CommandLine -match 'cortex') { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host '[CORTEX] Versao antiga fechada.' } }"
 timeout /t 2 >nul
 
 if /I "%ORIGEM%"=="%DESTINO%" (
