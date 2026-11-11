@@ -2,7 +2,7 @@
 name: cortex
 description: Usa o CÓRTEX, o segundo cérebro local do usuário (notas do Obsidian, git, sessões do Claude Code e pastas num cérebro 3D). Use quando o usuário disser "córtex", "cortex", "segundo cérebro", "usa o córtex", "mostra no córtex", "registra no córtex", ou pedir contexto do que já foi feito num projeto ("o que eu fiz em glass-pets essa semana").
 ---
-<!-- cortex-skill v:1 -->
+<!-- cortex-skill v:2 -->
 
 # CÓRTEX
 
@@ -82,6 +82,17 @@ Esta skill (`cortex`) é a base: comandos, regras e o que fazer nos outros pedid
    `cortex conectar <obsidian|git|claude|pasta> "<caminho>" --projeto <nome>`.
    O mesmo nome de projeto cai na mesma região. Para ver as fontes, use `cortex fontes`.
 
+## Vários PCs (sincronização)
+
+- O córtex pode juntar os cérebros de **vários PCs** do usuário por uma pasta que um serviço já sincroniza (OneDrive, Google Drive, Dropbox). Cada PC publica o que é dele e lê o dos outros.
+- Neurônios vindos de outro PC aparecem marcados **"· DE <PC>"** no CLI. O arquivo deles pode **não existir no disco deste PC**: use o conteúdo de `cortex no <id>`, que vem da sincronização, e não tente abrir o caminho.
+- Se o usuário disser "no outro PC não aparece": rode `cortex sync` e veja se a sincronização está ligada, qual a pasta e quais PCs publicaram.
+  - Oriente a escolher **a mesma pasta nos dois PCs** (`cortex sync pasta "<caminho>" --ligar` em cada um).
+  - Depois, `cortex sync agora`.
+  - Sem pasta em comum, use `cortex sync exportar <arquivo>` num PC e `cortex sync importar <arquivo>` no outro.
+- Filtrar por PC: `cortex mostrar X --maquinas PC-ESCRITORIO` ou `cortex listar --projeto X --maquinas PC-ESCRITORIO`.
+- Ligar a sincronização envia dados para a pasta (e para a nuvem dela). Só ligue se o usuário pedir.
+
 ## Como citar e o que contar
 
 - **Ids:** cite o **idCurto de 6 caracteres** (ex.: `a3f91c`). É o que o CLI mostra primeiro e o que o usuário acha no app com Ctrl+K.
@@ -123,6 +134,7 @@ Depois responda com um resumo curto do que foi feito, por tema e com os idCurto 
 | `cortex mostrar <projeto\|visão\|tudo> [filtros] [--abrir]` | muda a visão nas janelas abertas |
 | `cortex registrar --projeto X --titulo T --texto Y [--tags] [--ligar] [--autor]` | grava no diário |
 | `cortex conectar <tipo> "<caminho>" [--projeto X]` · `cortex fontes` · `cortex reconstruir` | fontes |
+| `cortex sync` · `sync pasta "<caminho>" [--ligar]` · `sync ligar\|desligar` · `sync agora` · `sync nome "<nome>"` · `sync exportar\|importar <arquivo>` | sincronização entre PCs |
 | `cortex skills` · `cortex skill instalar [nome\|todas]` · `cortex skill remover <nome>` | skills do Claude Code |
 | `cortex executar <skill> --projeto X [--gravar]` | roda uma skill executável no servidor, sem IA (contexto, onde-parei, revisão, ligações) |
 

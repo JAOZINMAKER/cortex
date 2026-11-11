@@ -182,6 +182,23 @@ async function garantir({ pronto = true, limite = 30000 } = {}) {
   }
 }
 
+// ---------- V5: máquina de origem ----------
+// nome deste PC segundo o servidor (cacheado); null em servidor sem sync
+let _meuPc;
+async function meuPc() {
+  if (_meuPc !== undefined) return _meuPc;
+  try { const r = await req('GET', '/api/sync', undefined, 5000); _meuPc = (r.status === 200 && r.json && r.json.maquina && (r.json.maquina.nome || r.json.maquina)) || null; }
+  catch { _meuPc = null; }
+  return _meuPc;
+}
+// " · DE PC-ESCRITORIO" quando o neurônio veio (só) de outro PC
+function deOutroPc(x, eu) {
+  const ms = (x && (x.maquinas && x.maquinas.length ? x.maquinas : (x.maquina ? [x.maquina] : []))) || [];
+  if (!ms.length || !eu) return '';
+  if (ms.some((m) => String(m).toLowerCase() === String(eu).toLowerCase())) return '';
+  return ' · DE ' + ms.map((m) => String(m).toUpperCase()).join('+');
+}
+
 // id principal para humanos e para citar: o idCurto de 6 caracteres (o Ctrl+K do app acha)
 const curto = (x) => (x && (x.idCurto || (x.id ? String(x.id).slice(0, 6) : ''))) || '';
 
@@ -230,6 +247,7 @@ function visaoDeOpcoes(alvo, op) {
   if (op.ate) v.ate = tempo(op.ate);
   if (op.grau) v.grauMin = Number(op.grau);
   if (op.texto) v.texto = String(op.texto);
+  if (op.maquinas) v.maquinas = lista(op.maquinas);
   if (op.vizinhos !== undefined) v.vizinhos = Math.max(0, Math.min(2, Number(op.vizinhos === true ? 1 : op.vizinhos)));
   const partes = [];
   if (v.projetos) partes.push(v.projetos.join('+').toUpperCase());
@@ -238,13 +256,14 @@ function visaoDeOpcoes(alvo, op) {
   if (op.desde) partes.push('DESDE ' + op.desde);
   if (v.tags) partes.push('#' + v.tags.join(' #'));
   if (v.texto) partes.push(`"${v.texto}"`);
+  if (v.maquinas) partes.push('PC ' + v.maquinas.join('+').toUpperCase());
   v.nome = partes.length ? partes.join(' · ') : 'TUDO';
   v.id = 'cli_' + v.nome.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
   return v;
 }
 
 async function resolverVisao(alvo, op) {
-  const temFiltro = ['fontes', 'tipos', 'tags', 'desde', 'ate', 'grau', 'texto', 'vizinhos', 'projetos'].some((k) => op[k] !== undefined);
+  const temFiltro = ['fontes', 'tipos', 'tags', 'desde', 'ate', 'grau', 'texto', 'vizinhos', 'projetos', 'maquinas'].some((k) => op[k] !== undefined);
   if (alvo && !temFiltro) {
     const r = await api('GET', '/api/visoes');
     const vs = (r.json && r.json.visoes) || [];
@@ -319,8 +338,9 @@ C.buscar = async (pos, op) => {
   rs = rs.slice(0, lim);
   if (MODO_JSON) return out(JSON.stringify(rs));
   if (!rs.length) return out(`nada encontrado para "${termo}".`);
+  const eu = rs.some((x) => x.maquina || x.maquinas) ? await meuPc() : null;
   for (const x of rs) {
-    out(`${curto(x)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 70)}`);
+    out(`${curto(x)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 70)}${deOutroPc(x, eu)}`);
     const meta = [x.fonte, String(x.regiao || '').replace(/^r_/, '')].filter(Boolean).join(' · ');
     if (meta || x.trecho) out(`        ${meta}${x.trecho ? '  — ' + corta(x.trecho, 90) : ''}`);
   }
@@ -344,7 +364,10 @@ C.no = async (pos, op) => {
   const d = await acharNo(alvo);
   if (MODO_JSON) return out(JSON.stringify(d));
   const n = d.no;
-  out(`${curto(n)} · ${String(n.tipo).toUpperCase()} · ${String(n.fonte).toUpperCase()} · ${n.titulo}   (id ${n.id})`);
+  const eu = n.maquina || n.maquinas ? await meuPc() : null;
+  out(`${curto(n)} · ${String(n.tipo).toUpperCase()} · ${String(n.fonte).toUpperCase()} · ${n.titulo}${deOutroPc(n, eu)}   (id ${n.id})`);
+  if (n.maquinas && n.maquinas.length > 1) out(`nos PCs: ${n.maquinas.join(', ')}`);
+  if (deOutroPc(n, eu) && n.caminho && !fs.existsSync(n.caminho)) out(`(o arquivo está no outro PC; o conteúdo abaixo veio da sincronização)`);
   out(`região ${String(n.regiao).replace(/^r_/, '')}/${n.subregiao || '—'} · autor ${n.autor || '—'} · grau ${n.grau} · ${n.palavras} palavras`);
   out(`criado ${data(n.criado)} · modificado ${data(n.modificado)} · hash ${n.hash || '—'}`);
   if (n.caminho) out(`caminho ${n.caminho}`);
@@ -418,6 +441,7 @@ C.listar = async (pos, op) => {
   if (ate) q.set('ate', String(Math.round(ate)));
   if (op.tipos) q.set('tipos', lista(op.tipos).join(','));
   if (op.fontes) q.set('fontes', lista(op.fontes).join(','));
+  if (op.maquinas) q.set('maquinas', lista(op.maquinas).join(','));
   const lim = Number(op.limite) || 30;
   q.set('limite', String(lim));
   const r = await api('GET', '/api/listar?' + q.toString());
@@ -425,10 +449,11 @@ C.listar = async (pos, op) => {
   const itens = Array.isArray(j) ? j : (j.itens || j.nos || j.resultados || []);
   if (MODO_JSON) return out(JSON.stringify(j));
   if (!itens.length) return out('nada no recorte pedido.');
+  const eu = itens.some((x) => x.maquina || x.maquinas) ? await meuPc() : null;
   for (const x of itens.slice(0, lim)) {
     const t = x.modificado || x.criado || x.t;
     const proj_ = x.projeto || String(x.regiao || '').replace(/^r_/, '');
-    out(`${curto(x)}  ${data(t)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 64)}${proj_ ? '  · ' + proj_ : ''}${x.worktree ? ' · wt ' + x.worktree : ''}${x.autor ? ' · ' + x.autor : ''}`);
+    out(`${curto(x)}  ${data(t)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 64)}${proj_ ? '  · ' + proj_ : ''}${x.worktree ? ' · wt ' + x.worktree : ''}${x.autor ? ' · ' + x.autor : ''}${deOutroPc(x, eu)}`);
     const ta = x.tagsAutor || [], tm = x.tags || [];
     if (ta.length || tm.length) out(`        ${ta.length ? 'autor: #' + ta.join(' #') : ''}${ta.length && tm.length ? '   ' : ''}${tm.length ? 'máquina: ' + tm.join(', ') : ''}`);
   }
@@ -558,6 +583,80 @@ C.executar = async (pos, op) => {
   }
 };
 
+// ---------- V5: sincronização entre PCs ----------
+function mostrarSync(j) {
+  const m = j.maquina || {};
+  out(`SINCRONIZAÇÃO ${j.ativo ? 'LIGADA' : 'DESLIGADA'} · este PC: ${m.nome || m.id || '—'}${m.id ? ' (' + String(m.id).slice(0, 8) + ')' : ''}`);
+  out(`pasta: ${j.pasta || '— (escolha com: cortex sync pasta "<caminho>")'}`);
+  if (j.ativo) out(`última publicação: ${data(j.ultimaPublicacao)} (${rel(j.ultimaPublicacao)}) · a cada ${j.intervaloMin ?? '?'} min`);
+  if (j.compartilhar) out(`compartilha: ${Object.entries(j.compartilhar).map(([k, v]) => `${k}=${v === true ? 'sim' : v === false ? 'não' : v}`).join(' · ')}`);
+  if (j.erro) out(`ERRO: ${j.erro}`);
+  const ms = j.maquinas || [];
+  if (ms.length) {
+    out('\nPC                         STATUS  NEURÔNIOS  PUBLICOU        PROJETOS');
+    for (const x of ms) out(`${(String(x.nome || x.id) + (x.eu ? ' (este)' : '')).padEnd(26)} ${String(x.status || '—').padEnd(7)} ${String(x.neuronios ?? '—').padStart(9)}  ${rel(x.geradoEm).padEnd(14)} ${corta((x.projetos || []).map((p) => (typeof p === 'string' ? p : p.nome)).join(', '), 50)}`);
+  } else if (j.ativo) out('\nnenhum outro PC publicou nesta pasta ainda.');
+  if (!j.ativo && j.sugestoes && j.sugestoes.length) {
+    out('\npastas sincronizadas encontradas neste PC:');
+    for (const s_ of j.sugestoes) out(`  ${String(s_.rotulo).padEnd(14)} ${s_.caminho}`);
+    out('use a MESMA pasta nos dois PCs: cortex sync pasta "<caminho>" e depois cortex sync ligar');
+  }
+}
+
+C.sync = async (pos, op) => {
+  const sub = (pos[0] || 'status').toLowerCase();
+  const arg = pos.slice(1).join(' ').trim();
+  await garantir({ pronto: false });
+  const fim = async (r, msg) => {
+    if (MODO_JSON) return out(JSON.stringify(r.json || { ok: true }));
+    if (msg) out(msg);
+    const st = await api('GET', '/api/sync');
+    if (sub !== 'status') out('');
+    mostrarSync(st.json || {});
+  };
+  if (sub === 'status') return fim(await api('GET', '/api/sync'));
+  if (sub === 'pasta') {
+    if (!arg) falhar('uso: cortex sync pasta "<caminho>"   (ex.: a pasta do OneDrive, Google Drive ou Dropbox)');
+    const abs = path.resolve(arg);
+    if (!fs.existsSync(abs)) falhar(`a pasta não existe neste PC: ${abs}`);
+    const corpo = { pasta: abs };
+    if (op.ligar) corpo.ativo = true;
+    return fim(await api('POST', '/api/sync', corpo), `pasta de sincronização: ${abs}${op.ligar ? ' (ligada)' : '. Ligue com: cortex sync ligar'}`);
+  }
+  if (sub === 'ligar' || sub === 'desligar') {
+    const r = await api('POST', '/api/sync', { ativo: sub === 'ligar' });
+    return fim(r, sub === 'ligar' ? 'sincronização ligada: este PC publica o que é dele e lê o dos outros PCs da pasta. Atenção: os dados vão para a pasta escolhida (e para a nuvem dela).' : 'sincronização desligada: este PC para de publicar e de ler.');
+  }
+  if (sub === 'agora') return fim(await api('POST', '/api/sync/agora', {}), 'publicado e relido.');
+  if (sub === 'nome') {
+    if (!arg) falhar('uso: cortex sync nome "<nome deste PC>"');
+    return fim(await api('POST', '/api/sync', { nome: arg }), `este PC agora se chama ${arg}.`);
+  }
+  if (sub === 'exportar') {
+    if (!arg) falhar('uso: cortex sync exportar <arquivo.cortexpack>');
+    let abs = path.resolve(arg);
+    if (!/\.cortexpack$/i.test(abs)) abs += '.cortexpack';
+    const r = await api('POST', '/api/sync/exportar', { caminho: abs });
+    if (MODO_JSON) return out(JSON.stringify(r.json || {}));
+    return out(`pacote exportado: ${(r.json && r.json.caminho) || abs}. Leve para o outro PC e rode lá: cortex sync importar "<arquivo>"`);
+  }
+  if (sub === 'importar') {
+    if (!arg) falhar('uso: cortex sync importar <arquivo.cortexpack>');
+    const abs = path.resolve(arg);
+    if (!fs.existsSync(abs)) falhar(`arquivo não encontrado: ${abs}`);
+    return fim(await api('POST', '/api/sync/importar', { caminho: abs }), `pacote importado: ${abs}`);
+  }
+  if (sub === 'esquecer') {
+    if (!arg) falhar('uso: cortex sync esquecer <nome ou id do PC>');
+    const st = (await api('GET', '/api/sync')).json || {};
+    const alvo = (st.maquinas || []).find((m) => String(m.id) === arg || String(m.id).startsWith(arg) || String(m.nome).toLowerCase() === arg.toLowerCase());
+    if (!alvo) falhar(`PC "${arg}" não encontrado. PCs: ${(st.maquinas || []).map((m) => m.nome).join(', ') || 'nenhum'}`);
+    if (alvo.eu) falhar('esse é este PC; para parar, use: cortex sync desligar');
+    return fim(await api('DELETE', '/api/sync/maquinas/' + encodeURIComponent(alvo.id)), `este PC parou de ler ${alvo.nome}.`);
+  }
+  falhar('uso: cortex sync [status] · sync pasta "<caminho>" [--ligar] · sync ligar|desligar · sync agora · sync nome "<nome>" · sync exportar <arquivo> · sync importar <arquivo> · sync esquecer <PC>');
+};
+
 // verifica sem ligar nada: código de saída 0 = rodando, 1 = fora do ar (usado pelo abrir-cortex.bat)
 C.ping = async () => {
   const st = await vivo();
@@ -585,6 +684,9 @@ const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
   cortex registrar --projeto X --titulo "..." --texto "..." [--tags a,b] [--ligar id1,id2]
   cortex conectar <obsidian|git|claude|pasta> "<caminho>" [--projeto X]
   cortex fontes                       fontes conectadas e status
+  cortex sync                         sincronização entre PCs: status e PCs vistos
+  cortex sync pasta "<caminho>" [--ligar] · sync ligar|desligar · sync agora
+  cortex sync nome "<nome>" · sync exportar <arquivo> · sync importar <arquivo> · sync esquecer <PC>
   cortex reconstruir
   cortex skills                       skills do Claude Code e se estão instaladas
   cortex skill instalar [nome|todas]  instala/atualiza skills (todas = também comando, PATH e CLAUDE.md)
