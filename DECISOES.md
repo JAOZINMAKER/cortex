@@ -66,3 +66,32 @@ Todas as dependências estão fixadas: three 0.169.0, chokidar 3.6.0, ws 8.18.0,
 
 ## D-011 · Referência conceitual
 Do mindcorpus veio só a ideia: um cérebro que nasce do tronco e uma barra de comando. Código, layout, textos e arte são próprios.
+
+## D-012 · App de desktop com Electron
+O usuário pediu um app, não um site. A escolha foi o Electron 33, e não o Tauri, por quatro motivos:
+- o servidor já é Node e roda dentro do processo principal;
+- o mesmo `CORTEX.exe` também roda o CLI (`ELECTRON_RUN_AS_NODE`), então não precisa de Node.js instalado;
+- o build para Windows sai daqui, do Linux, sem Rust;
+- o asar fica desligado porque o CLI e o instalador precisam ler os arquivos direto.
+
+Os dados ficam em `%APPDATA%\CORTEX`, para que atualizar o app nunca apague nada.
+
+## D-013 · Uma página por projeto
+Os projetos têm página própria (cérebro isolado, atividade, resumo, fontes e diário) porque a pergunta mais comum é "o que está acontecendo neste projeto". O cérebro de um projeto isolado é redesenhado para ocupar o espaço inteiro, com as subpastas e os worktrees como lobos.
+
+## D-014 · Worktrees e clones contam como um projeto
+O projeto é descoberto nesta ordem:
+1. apelidos (`gp-*` → glass-pets);
+2. git (common-dir para worktrees, remote para clones);
+3. a fonte que contém o caminho;
+4. o nome da pasta.
+
+Arquivos com o mesmo caminho relativo viram um neurônio só, com a lista de worktrees.
+
+## D-015 · Skills ensinam, o servidor executa
+As 6 skills são instruções curtas para outra sessão do Claude e usam o CLI. As que dão para calcular sem IA (onde-parei, revisão, ligações, contexto) rodam no servidor de forma determinística, e o Claude só refina se estiver ligado. Assim a resposta não depende de a sessão interpretar bem.
+
+Três testes cegos com agentes novos, que só tinham a skill, guiaram as correções: ids em 3 formatos, espera até o cérebro ficar pronto, `listar`, "me mostra" = texto + app e o worktree atual no "onde parei".
+
+## D-016 · O diário nunca escreve nos seus cofres
+O que as sessões registram vai para `%APPDATA%\CORTEX\diario`. Ele aparece como fonte DIÁRIO e nunca sobrescreve uma entrada: títulos repetidos ganham sufixo.
