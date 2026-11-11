@@ -91,7 +91,7 @@ async function ler(fonte) {
       for (const t of inline) tagsTexto.push(t.trim().slice(1));
       const criadoFm = parseData(fm.created || fm.criado || fm.date || fm.data);
       const birth = r.st.birthtimeMs && r.st.birthtimeMs > 0 ? r.st.birthtimeMs : r.st.mtimeMs;
-      let sub = rel.includes('/') ? rel.split('/')[0] : '/';
+      let sub = rel.includes('/') ? rel.split('/')[0] : 'raiz';
       let projetoNota;
       if (fonte.projetoPorPasta) {
         // diário interno: <projeto>/<arquivo>.md; o frontmatter guarda o nome exato do projeto
@@ -114,6 +114,7 @@ async function ler(fonte) {
         texto: corpo.slice(0, 4000),
         extra: { rel, tagsTexto: [...new Set(tagsTexto)].slice(0, 30), aliases: listaTags(fm.aliases), ...(projetoNota ? { diario: true } : {}) },
         ...(projetoNota ? { projetoNota } : {}),
+        tagsAutor: [...new Set(tagsTexto)].slice(0, 30), // tags de quem escreveu (frontmatter/#inline), separadas das da máquina
         _ligar: listaTags(fm.ligar),
         _corpo: corpo,
       });

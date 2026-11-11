@@ -19,7 +19,7 @@ function item(n, extra) {
 
 function dados(G, { projeto, dias = 7 } = {}) {
   const I = G.interno;
-  const desde = Date.now() - dias * 864e5;
+  const desde = dias > 0 ? Date.now() - dias * 864e5 : 0; // dias = 0 → todo o histórico
   const chave = projeto ? slug(projeto) : null;
   const nomeDe = (k) => I.nomeProj.get(k) || k;
   const conhecidos = [...new Set(I.nos.filter((n) => n.tipo !== 'dia').map((n) => nomeDe(n.projeto)))];
@@ -81,11 +81,12 @@ function gerar(G, opcoes = {}) {
   if (!d.encontrado) return `# CÓRTEX · projeto "${d.projeto}" não encontrado\n\nProjetos conhecidos: ${d.projetosConhecidos.join(', ') || 'nenhum'}.\n`;
   const proj = d.projeto;
   const pj = proj ? ` --projeto ${/\s/.test(proj) ? `"${proj}"` : proj}` : '';
-  const verMais = (tipos) => `\`cortex listar${pj} --tipos ${tipos} --desde ${d.dias}d\``;
+  const verMais = (tipos) => `\`cortex listar${pj} --tipos ${tipos}${d.dias ? ` --desde ${d.dias}d` : ''}\``;
+  const periodo = d.dias ? `últimos ${d.dias} dias` : 'todo o histórico';
   const quantos = (sec, n) => (sec.total > n ? `${Math.min(n, sec.itens.length)} de ${sec.total}` : `${sec.total}`);
   const c = d.contadores;
   const L = [];
-  L.push(`# CÓRTEX · ${proj ? proj.toUpperCase() : 'VISÃO GERAL'} · últimos ${d.dias} dias`);
+  L.push(`# CÓRTEX · ${proj ? proj.toUpperCase() : 'VISÃO GERAL'} · ${periodo}`);
   L.push(`gerado ${dataHora(d.geradoEm)} (hora local) · grafo v${d.versao} · ids entre crases são o idCurto (cite assim; \`cortex no <id>\` abre)`);
   L.push('');
   L.push(`**Totais:** ${c.neuronios} neurônios · ${c.notas} notas · ${c.commits} commits (${c.linhas} linhas) · ${c.sessoes} sessões + ${c.agentes} agentes · ${c.horasIA} h de IA · ${c.ferramentas} ferramentas · ${c.diario} registros no diário · ${c.mudaramNoPeriodo} mudaram no período`);

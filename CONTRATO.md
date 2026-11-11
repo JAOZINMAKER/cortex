@@ -253,3 +253,11 @@ Pasta `skills/` no app (substitui `skill/`), cada uma `skills/<nome>/SKILL.md` +
 Na seção SKILLS: cartão por skill com descrição, status no Claude Code (instalada / desatualizada / não instalada), botões INSTALAR/ATUALIZAR/REMOVER (em `%USERPROFILE%\.claude\skills\<nome>`), VER SKILL.md, e **EXECUTAR AQUI** para as executáveis (onde-parei, revisao-semanal, ligacoes, contexto): roda no servidor de forma determinística (sem IA) e mostra o resultado; se o Claude estiver ligado nas configurações, pode refinar o texto.
 - `GET /api/skills` → `[{ ...meta, instalada, versaoInstalada, versaoApp, caminho }]` · `POST /api/skills/:nome/instalar|remover` · `POST /api/skills/:nome/executar { projeto, ... }` → `{ markdown, dados, registradoEm? }`.
 - CLI: `cortex skills`, `cortex skill instalar [nome|todas]`, `cortex executar <skill> --projeto X`.
+
+### V3.2: ajustes do segundo teste cego
+- **`grau`** = nº de vizinhos distintos, **sem** a ligação com o nó `dia` e sem contar duas vezes sinapses de tipos diferentes entre o mesmo par. Bate com o tamanho de `vizinhos` quando há ≤ 12. Para nós `dia`, o grau conta os neurônios daquele dia.
+- **Arquivos do git:** um nó por caminho relativo no projeto, mesmo vindo de vários worktrees ou clones. `caminho` é o checkout real onde o arquivo existe (o repo principal primeiro). Campo extra `worktrees: string[]` (pastas onde existe) no nó, em `/api/listar` e em `/api/busca`. Se só existir no worktree: título `"bosque.lua · gp-b"`. Se só existir numa branch sem worktree (ou tiver sido apagado): `caminho: null` e título `"fantasma.lua @ so-branch"`. Arquivo que é uma nota do Obsidian em qualquer checkout vira a própria nota.
+- **Branches de clone separado** levam o nome do clone: `"main · gp-clone"`.
+- **Subregião da raiz** de um cofre, pasta ou repo chama `"raiz"` (antes era `"/"`, o que gerava "glass-pets//").
+- **`tagsAutor: string[]`**: tags de quem escreveu (frontmatter `tags` e `#inline`, incluindo as de `/api/registrar`) no nó (quando não vazias), no topo da resposta de `/api/no` e na busca (que acha por elas). `tags` continua sendo só a interpretação da máquina.
+- **`/api/resumo?dias=0`** ou **`?tudo=1`**: todo o histórico; o cabeçalho diz "todo o histórico" e o JSON traz `dias: 0, desde: 0`.

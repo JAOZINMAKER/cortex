@@ -343,12 +343,19 @@ async function detalheNo(id) {
     historico.push({ t: n.criado, evento: 'CRIADO' });
     if (n.modificado && n.modificado !== n.criado) historico.push({ t: n.modificado, evento: 'ÚLTIMA MUDANÇA', hash: n.hash });
   }
-  if (histArq) for (const h of histArq) historico.push({ t: h.t, evento: `COMMIT +${h.a}/-${h.d} ${h.s}`.slice(0, 140), hash: h.sha.slice(0, 12) });
+  if (histArq) {
+    const vistosSha = new Set();
+    for (const h of histArq) {
+      if (vistosSha.has(h.sha)) continue; // o mesmo commit visto por worktree e repo principal
+      vistosSha.add(h.sha);
+      historico.push({ t: h.t, evento: `COMMIT +${h.a}/-${h.d} ${h.s}`.slice(0, 140), hash: h.sha.slice(0, 12) });
+    }
+  }
   historico.sort((a, b) => b.t - a.t);
 
   const maq = classify.interpretacao(n.id) || { tags: n.tags, por: 'regras', em: 0 };
   return {
-    no: publicoDe(i), entrada, saida, vizinhos, historico: historico.slice(0, 300), conteudo,
+    no: publicoDe(i), tagsAutor: n.tagsAutor || [], entrada, saida, vizinhos, historico: historico.slice(0, 300), conteudo,
     maquina: { tags: maq.tags || [], regiao: n.regiao, cluster: n.cluster, por: maq.por || 'regras', em: maq.em || 0, ...(maq.nota ? { nota: maq.nota } : {}) },
     correcao: classify.correcao(n.id),
   };
@@ -403,6 +410,7 @@ function busca(q, { projeto: proj, limite = 50 } = {}) {
       const tx = n.texto || '';
       const k = tx.toLowerCase().indexOf(termo);
       if (k >= 0) { score = 40; trecho = tx.slice(Math.max(0, k - 50), k + 90).replace(/\s+/g, ' '); }
+      else if ((n.tagsAutor || []).some((g) => g.toLowerCase().replace(/^#/, '') === termo.replace(/^#/, ''))) score = 35;
       else if ((n.tags || []).some((g) => g.toLowerCase() === termo)) score = 30;
       else if (tipoTermo && n.tipo === tipoTermo) score = 20;
     }
@@ -410,6 +418,7 @@ function busca(q, { projeto: proj, limite = 50 } = {}) {
     if (n.tipo === 'dia' && score < 100) score -= 15;
     res.push({ score: score + Math.min(9, n.grau / 20) + (n.modificado / 1e13), id: n.id, idCurto: n.idCurto, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte,
       regiao: n.regiao, projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, hash: n.hash || null, modificado: Math.round(n.modificado),
+      ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}), ...(n.tagsAutor && n.tagsAutor.length ? { tagsAutor: n.tagsAutor } : {}),
       trecho: trecho || (n.texto || '').slice(0, 120).replace(/\s+/g, ' ') });
   });
   res.sort((a, b) => b.score - a.score);
@@ -446,7 +455,8 @@ function listar(sp) {
   return {
     total: lista.length, limite, ordem,
     itens: lista.slice(0, limite).map((n) => ({ id: n.id, idCurto: n.idCurto, tipo: n.tipo, fonte: n.fonte, titulo: n.titulo, regiao: n.regiao,
-      projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, criado: Math.round(n.criado), modificado: Math.round(n.modificado), autor: n.autor, hash: n.hash || null })),
+      projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, criado: Math.round(n.criado), modificado: Math.round(n.modificado), autor: n.autor, hash: n.hash || null,
+      ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}) })),
   };
 }
 
@@ -649,7 +659,10 @@ const servidor = http.createServer(async (req, res) => {
     if (p === '/api/registrar' && req.method === 'POST') return registrar(req, res);
     if (p === '/api/resumo') {
       if (!G) return json(res, 503, { erro: 'carregando', pronto, fase: fase() });
-      const dias = Math.max(1, Math.min(365, parseInt(url.searchParams.get('dias'), 10) || 7));
+      // dias=0 ou tudo=1 → todo o histórico
+      const diasQ = url.searchParams.get('dias');
+      const tudo = /^(1|true|sim)$/i.test(url.searchParams.get('tudo') || '') || diasQ === '0';
+      const dias = tudo ? 0 : Math.max(1, Math.min(3650, parseInt(diasQ, 10) || 7));
       const opR = { projeto: url.searchParams.get('projeto') || null, dias };
       if ((url.searchParams.get('formato') || '').toLowerCase() === 'json') return json(res, 200, resumo.dados(G, opR), req);
       const txt = resumo.gerar(G, opR);

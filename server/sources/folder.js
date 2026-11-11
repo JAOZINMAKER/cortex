@@ -49,7 +49,7 @@ async function ler(fonte) {
     const birth = st.birthtimeMs && st.birthtimeMs > 0 ? Math.min(st.birthtimeMs, st.mtimeMs) : st.mtimeMs;
     nos.push({
       chave: 'doc:' + normPath(abs), tipo: 'doc', fonte: 'pasta',
-      titulo: path.basename(abs), subregiao: rel.includes('/') ? rel.split('/')[0] : '/',
+      titulo: path.basename(abs), subregiao: rel.includes('/') ? rel.split('/')[0] : 'raiz',
       criado: birth, modificado: st.mtimeMs, palavras, autor: 'EU', hash, caminho: abs,
       texto: (path.basename(abs, ext).replace(/[_\-.]+/g, ' ') + '\n' + texto).slice(0, 4000),
       extra: { rel, ext, tamanho: st.size, trecho: texto.slice(0, 600) },

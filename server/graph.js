@@ -10,6 +10,18 @@ const DIA_MS = 86400000;
 
 function idDe(chave) { return sha1(chave).slice(0, 16); }
 
+function juntarArquivo(v, n, porCaminho) {
+  const wts = new Set([...(v.worktrees || []), ...(n.worktrees || [])]);
+  v.worktrees = [...wts];
+  v.extra.worktrees = v.worktrees;
+  v.extra.caminhos = [...new Set([...(v.extra.caminhos || []), ...(n.extra.caminhos || [])])];
+  v.extra.candidatos = [...new Set([...(v.extra.candidatos || []), ...(n.extra.candidatos || [])])];
+  if (!v.caminho && n.caminho) { v.caminho = n.caminho; v.titulo = n.titulo; }
+  if (n.criado < v.criado) v.criado = n.criado;
+  if (n.modificado > v.modificado) v.modificado = n.modificado;
+  for (const c of n.extra.candidatos || []) { const np = normPath(c); if (!porCaminho.has(np)) porCaminho.set(np, v.chave); }
+}
+
 // parciais: [{ fonte: cfg, r: resultado }]
 // opcoes.descobrir(caminho) → { projeto, base } (server/projeto.js)
 function montar(parciais, statusFontes, opcoes = {}) {
@@ -44,6 +56,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
   const alias = new Map();
   const porCaminho = new Map(); // normPath -> chave (prioridade nota > arquivo > doc)
   const prioridade = { nota: 3, arquivo: 2, doc: 1 };
+  const notaDocPorCaminho = new Map(); // normPath -> chave de nota/doc
 
   for (const p of ps) {
     const projetoFonte = p.fonte.projeto;
@@ -57,12 +70,17 @@ function montar(parciais, statusFontes, opcoes = {}) {
     }
     for (const n0 of p.r.nos) {
       const n = n0;
-      if (n.tipo === 'arquivo' || n.tipo === 'doc') {
-        const np = normPath(n.caminho);
-        const ja = porCaminho.get(np);
+      if (n.tipo === 'doc') {
+        const ja = porCaminho.get(normPath(n.caminho));
         if (ja) { alias.set(n.chave, ja); continue; }
       }
-      if (porChave.has(n.chave)) continue;
+      if (n.tipo === 'nota' || n.tipo === 'doc') notaDocPorCaminho.set(normPath(n.caminho), n.chave);
+      if (porChave.has(n.chave)) {
+        // mesmo arquivo visto por outra fonte do projeto (worktree, clone): junta os checkouts num nó só
+        const v = nos[porChave.get(n.chave)];
+        if (v.tipo === 'arquivo' && n.tipo === 'arquivo') juntarArquivo(v, n, porCaminho);
+        continue;
+      }
       let projeto = n.projetoNota || projetoFonte;
       if (n.tipo === 'sessao') {
         if (opcoes.descobrir && n.cwd) {
@@ -83,12 +101,33 @@ function montar(parciais, statusFontes, opcoes = {}) {
       }
       porChave.set(n.chave, nos.length);
       nos.push(n);
-      if (n.caminho && prioridade[n.tipo]) {
-        const np = normPath(n.caminho);
-        const ja = porCaminho.get(np);
-        if (!ja || prioridade[nos[porChave.get(ja)].tipo] < prioridade[n.tipo]) porCaminho.set(np, n.chave);
+      if (prioridade[n.tipo]) {
+        const cams = n.tipo === 'arquivo' && n.extra && n.extra.candidatos ? n.extra.candidatos : [n.caminho];
+        for (const c of cams) {
+          if (!c) continue;
+          const np = normPath(c);
+          const ja = porCaminho.get(np);
+          if (!ja || prioridade[nos[porChave.get(ja)].tipo] < prioridade[n.tipo]) porCaminho.set(np, n.chave);
+        }
       }
     }
+  }
+
+  // arquivos do git que são notas/docs conhecidas (em qualquer checkout do projeto) viram apelido delas
+  const removidos = new Set();
+  for (const n of nos) {
+    if (n.tipo !== 'arquivo') continue;
+    for (const c of (n.extra && n.extra.candidatos) || n.extra.caminhos || [n.caminho]) {
+      if (!c) continue;
+      const x = notaDocPorCaminho.get(normPath(c));
+      if (x) { alias.set(n.chave, x); removidos.add(n.chave); break; }
+    }
+  }
+  if (removidos.size) {
+    const resto = nos.filter((n) => !removidos.has(n.chave));
+    nos.length = 0;
+    porChave.clear();
+    for (const n of resto) { porChave.set(n.chave, nos.length); nos.push(n); }
   }
 
   // regiões + correções do usuário
@@ -207,9 +246,16 @@ function montar(parciais, statusFontes, opcoes = {}) {
   for (let i = 0; i < N; i++) if (adj[i].length) tam.set(rot[i], (tam.get(rot[i]) || 0) + 1);
   const renum = new Map([...tam.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]).map(([r], i) => [r, i]));
 
+  // grau = nº de vizinhos distintos, sem contar a ligação com o dia (para nós "dia", conta tudo)
+  const viz = Array.from({ length: N }, () => new Set());
+  for (const s of sinapses) {
+    const diaA = nosOrd[s.a].tipo === 'dia', diaB = nosOrd[s.b].tipo === 'dia';
+    if (s.tipo === 'DIA') { if (diaA) viz[s.a].add(s.b); if (diaB) viz[s.b].add(s.a); continue; }
+    viz[s.a].add(s.b); viz[s.b].add(s.a);
+  }
   for (let i = 0; i < N; i++) {
     const n = nosOrd[i];
-    n.grau = grau[i];
+    n.grau = viz[i].size;
     n.orfao = (n.tipo === 'nota' || n.tipo === 'doc' || n.tipo === 'arquivo') && grauReal[i] === 0;
     n.cluster = adj[i].length ? renum.get(rot[i]) : -1;
   }
@@ -300,6 +346,8 @@ function finalizar(nosOrd, sinapses, nomeRegiao, opcoesLayout = {}, extras = nul
     for (const c of CAMPOS) o[c] = n[c] === undefined ? null : n[c];
     o.criado = Math.round(o.criado || 0); o.modificado = Math.round(o.modificado || 0);
     if (n.fora) o.fora = true;
+    if (n.worktrees && n.worktrees.length) o.worktrees = n.worktrees;
+    if (n.tagsAutor && n.tagsAutor.length) o.tagsAutor = n.tagsAutor;
     return o;
   });
   return { regioes: regioesArr, contadores: cont, publicos, info };
