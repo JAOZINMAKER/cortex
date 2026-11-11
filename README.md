@@ -2,18 +2,21 @@
 
 Segundo cérebro local, agora como **app de desktop**. Junta suas notas do Obsidian, seus repositórios git, suas conversas do Claude Code e suas pastas num cérebro 3D vivo que se organiza sozinho. Tudo roda no seu computador e nada sai daqui sem você ligar.
 
-## Instalar
+## Instalar (em cada PC)
 
-1. Extraia `CORTEX-win-x64.zip` onde quiser. A sugestão é `%LOCALAPPDATA%\Programs\CORTEX`: cole isso na barra de endereço do Explorador de Arquivos.
-2. Dentro da pasta, rode **`Instalar CORTEX.bat`** uma vez. Ele:
-   - cria atalhos na Área de Trabalho e no Menu Iniciar;
-   - instala o comando `cortex` no terminal;
-   - instala as 6 skills no Claude Code;
-   - avisa todas as sessões futuras do Claude Code que o CÓRTEX existe (um bloco no seu `CLAUDE.md` global);
-   - abre o app.
-3. Daí em diante, abra pelo atalho **CORTEX** ou com **Ctrl+Alt+C**.
+1. Extraia `CORTEX-win-x64.zip` em qualquer lugar, inclusive numa pasta do OneDrive.
+2. Dê dois cliques em **`Instalar CORTEX.bat`**. Ele:
+   - fecha o CÓRTEX, se estiver aberto;
+   - **copia o app para uma pasta local** (`%LOCALAPPDATA%\Programs\CORTEX`), nunca para o OneDrive;
+   - cria os atalhos;
+   - instala o comando `cortex` e as 6 skills do Claude Code;
+   - põe o aviso no `CLAUDE.md` global;
+   - **liga a sincronização em `OneDrive\CORTEX`**, se este PC ainda não tiver uma.
+3. Repita nos outros PCs. Todos usam a mesma pasta `OneDrive\CORTEX` e viram um cérebro só.
 
-Não precisa de Node.js, porque o `CORTEX.exe` roda tudo. Precisa do **Git** instalado para ler repositórios. Os seus dados ficam em `%APPDATA%\CORTEX`, então para atualizar basta trocar a pasta do app.
+Não precisa de Node.js, só do **Git**. Os dados ficam em `%APPDATA%\CORTEX`, e a pasta extraída pode ser apagada depois.
+
+> **Nunca rode o `CORTEX.exe` de dentro do OneDrive.** Os PCs passam a disputar os arquivos do programa e aparece o erro "pasta em uso". Se isso acontecer, o app avisa e oferece reinstalar na pasta local.
 
 ## O app
 

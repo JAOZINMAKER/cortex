@@ -174,6 +174,24 @@ function atualizarClaudeMd(home, feito) {
   if (escreverSeMudou(arq, novo)) feito.push(`CLAUDE.md global: bloco do CÓRTEX ${i >= 0 ? 'atualizado' : 'adicionado'} em ${arq}`);
 }
 
+// --sync-auto: se o OneDrive existe e este PC nunca configurou a sincronização, deixa um aviso para o app
+// ligar a sincronização em <OneDrive>\CORTEX na próxima abertura (o servidor aplica uma vez só).
+function syncAuto(dadosOpt, feito, avisos) {
+  const env = process.env;
+  const nuvem = env.OneDrive || env.OneDriveConsumer || env.OneDriveCommercial;
+  if (!nuvem || !fs.existsSync(nuvem)) { avisos.push('OneDrive não encontrado: ligue a sincronização no app (Configurações → Sincronização) escolhendo uma pasta que todos os PCs enxergam.'); return; }
+  const dados = dadosOpt ? path.resolve(dadosOpt) : (env.APPDATA ? path.join(env.APPDATA, 'CORTEX') : path.join(os.homedir(), '.config', 'CORTEX'));
+  let cfg = {};
+  try { cfg = JSON.parse(fs.readFileSync(path.join(dados, 'cortex.config.json'), 'utf8')); } catch { /* primeira vez */ }
+  if (cfg.sync && cfg.sync.pasta) { feito.push(`sincronização já configurada: ${cfg.sync.pasta}`); return; }
+  const pasta = path.join(nuvem, 'CORTEX');
+  try {
+    fs.mkdirSync(dados, { recursive: true });
+    fs.writeFileSync(path.join(dados, 'sync-auto.json'), JSON.stringify({ pasta }, null, 2));
+    feito.push(`sincronização: vai ligar em ${pasta} (mesma pasta nos seus outros PCs = um cérebro só)`);
+  } catch (e) { avisos.push('não deu para preparar a sincronização: ' + e.message); }
+}
+
 function instalar(opcoes = {}) {
   const { silencioso = false } = opcoes;
   const home = homeDe();
@@ -185,6 +203,7 @@ function instalar(opcoes = {}) {
   garantirPath(bin, feito, avisos);
   try { feito.push(...instalarSkills('todas', home)); } catch (e) { avisos.push(e.message); }
   atualizarClaudeMd(home, feito);
+  if (opcoes.syncAuto) syncAuto(opcoes.dados, feito, avisos);
   if (!silencioso || feito.length || avisos.length) {
     if (!feito.length && !avisos.length) console.log('[córtex] instalação em dia: comando, PATH, skills e CLAUDE.md.');
     for (const f of feito) console.log('[córtex] ' + f);
@@ -204,5 +223,5 @@ if (require.main === module) {
     return a ? a.slice(nome.length + 3) : undefined;
   };
   // --exe "<CORTEX.exe>": o comando roda pelo app · --dados "<pasta>": pasta de dados do app (%APPDATA%\CORTEX)
-  instalar({ silencioso: argv.includes('--silencioso'), exe: valor('exe'), dados: valor('dados') });
+  instalar({ silencioso: argv.includes('--silencioso'), exe: valor('exe'), dados: valor('dados'), syncAuto: argv.includes('--sync-auto') });
 }

@@ -98,3 +98,9 @@ O que as sessões registram vai para `%APPDATA%\CORTEX\diario`. Ele aparece como
 
 ## D-017 · Sincronização por pasta, sem servidor na nuvem
 Para juntar 3 PCs sem criar conta nem servidor, o CÓRTEX usa uma pasta que um serviço que o usuário já tem (OneDrive, Google Drive, Dropbox) sincroniza. Cada PC escreve só na própria subpasta, então nunca há conflito. O pacote é dividido por fonte, com hash no manifesto: só se reenvia e só se baixa o que mudou. Os ids dos neurônios usam a chave natural sem caminho absoluto, então o mesmo commit, nota ou sessão é um neurônio só e tem o mesmo `idCurto` em qualquer PC. Ligar a sincronização é sempre escolha do usuário, porque os dados vão para a nuvem dele.
+
+## D-018 · O app fica sempre numa pasta local
+O usuário extraiu o app dentro do OneDrive, e os 3 PCs passaram a disputar os arquivos do programa (erro "pasta em uso"). Por isso:
+- O `Instalar CORTEX.bat` copia o app para `%LOCALAPPDATA%\Programs\CORTEX` com robocopy, fechando antes o CÓRTEX que estiver aberto. Assim o zip pode ser extraído em qualquer lugar, inclusive no OneDrive, uma vez só para os 3 PCs.
+- O app avisa quando roda de dentro de uma pasta sincronizada e oferece reinstalar.
+- Com `--sync-auto`, o instalador liga a sincronização em `OneDrive\CORTEX`. Isso só acontece se o PC nunca configurou uma, e o servidor aplica uma vez só, para que os 3 PCs se juntem sem nenhum clique a mais.

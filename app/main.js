@@ -341,6 +341,20 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId('local.cortex.app');
   Menu.setApplicationMenu(null);
 
+  // O app rodando de dentro de uma pasta sincronizada (OneDrive etc.) trava arquivos entre os PCs.
+  function avisarPastaSincronizada() {
+    if (process.platform !== 'win32' || !app.isPackaged) return;
+    const aqui = path.dirname(process.execPath).toLowerCase();
+    const nuvens = [process.env.OneDrive, process.env.OneDriveConsumer, process.env.OneDriveCommercial, path.join(os.homedir(), 'Dropbox'), path.join(os.homedir(), 'Google Drive')]
+      .filter(Boolean).map((x) => x.toLowerCase());
+    if (!nuvens.some((n) => aqui.startsWith(n)) && !/\\onedrive|\\dropbox|google drive/.test(aqui)) return;
+    const bat = path.join(path.dirname(process.execPath), 'Instalar CORTEX.bat');
+    const r = dialog.showMessageBoxSync(janela, { type: 'warning', title: 'CÓRTEX', buttons: ['Instalar agora', 'Depois'], defaultId: 0, cancelId: 1,
+      message: 'O CÓRTEX está rodando de dentro de uma pasta sincronizada.',
+      detail: 'Isso faz os seus PCs disputarem os arquivos do programa (erro "pasta em uso"). Clique em "Instalar agora" para copiar o app para uma pasta local deste PC. A sincronização do cérebro continua funcionando normalmente.' });
+    if (r === 0 && fs.existsSync(bat)) { shell.openPath(bat); saindo = true; setTimeout(() => app.quit(), 500); }
+  }
+
   app.whenReady().then(async () => {
     criarJanela();
     criarBandeja();
@@ -353,6 +367,7 @@ if (!app.requestSingleInstanceLock()) {
       return;
     }
     await janela.loadURL(URL_BASE() + '/').catch(() => {});
+    avisarPastaSincronizada();
     if (process.env.CORTEX_PRINT) printDeTeste(process.env.CORTEX_PRINT);
     await sincronizarConfig();
     atualizarProjetosBandeja();

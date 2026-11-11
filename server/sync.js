@@ -655,10 +655,26 @@ async function esquecer(id) {
   return true;
 }
 
+// O instalador deixa <dados>/sync-auto.json { pasta } quando acha o OneDrive. Aplica uma vez só,
+// e só se a sincronização nunca foi configurada neste PC (escolha do usuário sempre vence).
+function aplicarSyncAuto() {
+  const arq = path.join(config.DADOS_DIR, 'sync-auto.json');
+  const auto = readJSON(arq, null);
+  if (!auto || !auto.pasta) return;
+  try { fs.rmSync(arq, { force: true }); } catch { /* tanto faz */ }
+  const c = config.get();
+  if (c.sync && c.sync.pasta) return;
+  try { fs.mkdirSync(auto.pasta, { recursive: true }); } catch (e) { ctx.telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: `SYNC AUTOMÁTICO FALHOU: ${e.message}` }); return; }
+  c.sync = { ...PADRAO, ...(c.sync || {}), ativo: true, pasta: auto.pasta };
+  config.salvar();
+  ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `SINCRONIZAÇÃO LIGADA PELO INSTALADOR → ${auto.pasta}` });
+}
+
 async function iniciar(c) {
   ctx = c;
   maq = null; remotos.clear(); ultimaPublicacao = null; erro = null; partesPublicadas = new Map();
   maquina();
+  aplicarSyncAuto();
   vigiar();
   await lerRemotos();
 }
