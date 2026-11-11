@@ -588,7 +588,12 @@ function mostrarSync(j) {
   const m = j.maquina || {};
   out(`SINCRONIZAÇÃO ${j.ativo ? 'LIGADA' : 'DESLIGADA'} · este PC: ${m.nome || m.id || '—'}${m.id ? ' (' + String(m.id).slice(0, 8) + ')' : ''}`);
   out(`pasta: ${j.pasta || '— (escolha com: cortex sync pasta "<caminho>")'}`);
-  if (j.ativo) out(`última publicação: ${data(j.ultimaPublicacao)} (${rel(j.ultimaPublicacao)}) · a cada ${j.intervaloMin ?? '?'} min`);
+  if (j.ativo) {
+    // V5.1: ultimaPublicacao = { em, neuronios, bytes, partesEscritas, ... }; antes era só o epoch
+    const up = j.ultimaPublicacao && typeof j.ultimaPublicacao === 'object' ? j.ultimaPublicacao : { em: j.ultimaPublicacao };
+    const det = up.neuronios != null ? ` · ${up.neuronios} neurônios${up.bytes != null ? ' · ' + Math.round(up.bytes / 1024) + ' KB' : ''}${Array.isArray(up.partesEscritas) ? ' · ' + up.partesEscritas.length + ' parte(s) regravada(s)' : ''}` : '';
+    out(`última publicação: ${up.em ? data(up.em) + ' (' + rel(up.em) + ')' : 'ainda não publicou'}${det} · a cada ${j.intervaloMin ?? '?'} min`);
+  }
   if (j.compartilhar) out(`compartilha: ${Object.entries(j.compartilhar).map(([k, v]) => `${k}=${v === true ? 'sim' : v === false ? 'não' : v}`).join(' · ')}`);
   if (j.erro) out(`ERRO: ${j.erro}`);
   const ms = j.maquinas || [];
