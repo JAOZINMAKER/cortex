@@ -657,13 +657,21 @@ async function esquecer(id) {
 
 // O instalador deixa <dados>/sync-auto.json { pasta } quando acha o OneDrive. Aplica uma vez só,
 // e só se a sincronização nunca foi configurada neste PC (escolha do usuário sempre vence).
+// Sem o aviso do instalador, mas com OneDrive neste PC e nada configurado: liga sozinho em <OneDrive>\CORTEX,
+// a mesma pasta em todos os PCs (o usuário não precisa saber qual é). Desligar no app grava ativo:false e isso não volta.
+function pastaOneDrive() {
+  const e = process.env;
+  for (const n of [e.OneDrive, e.OneDriveConsumer, e.OneDriveCommercial]) if (n && fs.existsSync(n)) return path.join(n, 'CORTEX');
+  return null;
+}
+
 function aplicarSyncAuto() {
   const arq = path.join(config.DADOS_DIR, 'sync-auto.json');
-  const auto = readJSON(arq, null);
-  if (!auto || !auto.pasta) return;
+  let auto = readJSON(arq, null);
   try { fs.rmSync(arq, { force: true }); } catch { /* tanto faz */ }
   const c = config.get();
-  if (c.sync && c.sync.pasta) return;
+  if (c.sync && (c.sync.pasta || c.sync.ativo === false)) return; // o usuário já escolheu (ou desligou)
+  if (!auto || !auto.pasta) { const od = pastaOneDrive(); if (!od) return; auto = { pasta: od }; }
   try { fs.mkdirSync(auto.pasta, { recursive: true }); } catch (e) { ctx.telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: `SYNC AUTOMÁTICO FALHOU: ${e.message}` }); return; }
   c.sync = { ...PADRAO, ...(c.sync || {}), ativo: true, pasta: auto.pasta };
   config.salvar();
