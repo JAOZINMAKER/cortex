@@ -25,7 +25,21 @@ export const TEMAS = {
     d3: { obsidian: '#ecebf5', git: '#8f7cff', claude: '#c9c2ff', pasta: '#8d8aa3', dia: '#3c3170', diario: '#d5bee0' },
   },
 };
-export const NOMES = Object.keys(TEMAS);
+export const PRONTOS = Object.keys(TEMAS);
+export let NOMES = Object.keys(TEMAS);
+export const TOKENS_UI = ['fundo', 'painel', 'grade', 'linha', 'texto', 'cinza', 'apagado', 'acento', 'maquina', 'alerta'];
+export const TOKENS_3D = ['obsidian', 'git', 'claude', 'pasta', 'diario', 'dia'];
+// temas próprios (data/temas.json): { id, nome, base, tokens: { ...ui, ...3d } }
+export function registrar(t) {
+  const base = TEMAS[t.base] || TEMAS.grafite; const k = t.tokens || {};
+  const ui = {}, d3 = {}; for (const x of TOKENS_UI) ui[x] = k[x] || base.ui[x]; for (const x of TOKENS_3D) d3[x] = k[x] || base.d3[x] || base.ui.maquina;
+  TEMAS[t.id] = { nome: String(t.nome || t.id).toUpperCase(), desc: 'TEMA PRÓPRIO · BASE ' + (TEMAS[t.base]?.nome || 'GRAFITE'), ui, d3, proprio: true, base: t.base || 'grafite' };
+  NOMES = Object.keys(TEMAS); return t.id;
+}
+export function remover(id) { if (PRONTOS.includes(id)) return; delete TEMAS[id]; NOMES = Object.keys(TEMAS); if (nomeAtual === id) aplicar('grafite'); }
+export function tokensDe(id) { const T = TEMAS[id] || TEMAS.grafite; return { ...T.ui, ...T.d3 }; }
+// contraste WCAG entre duas cores
+export function contraste(a, b) { const L = h => { const c = rgb(h).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }; const x = L(a), y = L(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
 const PADRAO = 'grafite', CHAVE = 'cortex.tema';
 
 // ---------------------------------------------------------------- utilidades de cor

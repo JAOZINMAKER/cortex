@@ -3,7 +3,8 @@ import { $, esc } from './util.js';
 import * as tema from './tema.js';
 
 export const PADRAO = { tema: 'grafite', brilho: 1, tamanhoPonto: 1, orcamentoRotulos: 180, densidadeRotulos: 'normal', mostrarSinapses: true, mostrarTecido: true, mostrarGrade: true, rotacaoAuto: true,
-  paineis: { log: true, status: true, contadores: true, minimapa: true, linhaTempo: true }, coresFonte: {}, som: false, visaoInicial: 'tudo' };
+  paineis: { log: true, status: true, contadores: true, minimapa: true, linhaTempo: true }, coresFonte: {}, som: false, visaoInicial: 'tudo',
+  scanlines: 0.5, ruido: 0.5, fonteBase: 1, fonteLargura: 87.5, animacoesReduzidas: false, fpsMax: 60, projetosFav: [], projetosOcultos: [], lateralRecolhida: false };
 const PAINEIS = [['log', 'LOG DE EVENTOS'], ['status', 'STATUS DO PROCESSO'], ['contadores', 'CONTADORES'], ['minimapa', 'MINIMAPA'], ['linhaTempo', 'LINHA DO TEMPO']];
 const CHAVE_LOCAL = 'cortex.ajustes';
 
@@ -17,7 +18,9 @@ export class Ajustes {
   async carregar() {
     let d = null;
     try { const r = await fetch('/api/ajustes'); if (r.ok) d = await r.json(); else this.servidor = false; } catch { this.servidor = false; }
-    if (!d) { try { d = JSON.parse(localStorage.getItem(CHAVE_LOCAL) || 'null'); } catch { d = null; } }
+    let local = null; try { local = JSON.parse(localStorage.getItem(CHAVE_LOCAL) || 'null'); } catch { local = null; }
+    if (!d) d = local; else if (local) for (const k in local) if (!(k in d)) d[k] = local[k]; // chaves que o servidor não guarda ficam no navegador
+    try { const r = await fetch('/api/temas'); if (r.ok) { const t = await r.json(); for (const x of (Array.isArray(t) ? t : t.temas || [])) tema.registrar(x); } } catch {}
     this.a = { ...JSON.parse(JSON.stringify(PADRAO)), ...(d || {}) }; this.a.paineis = { ...PADRAO.paineis, ...(d?.paineis || {}) }; this.a.coresFonte = { ...(d?.coresFonte || {}) };
     // ?tema= na URL vence o ajuste salvo nesta janela
     let urlTema = null; try { urlTema = new URLSearchParams(location.search).get('tema'); } catch {}
@@ -42,6 +45,9 @@ export class Ajustes {
     if (!mudou || mudou === 'rotacaoAuto') c.autoGiro = a.rotacaoAuto && c.foco < 0;
     c.rotacaoAuto = a.rotacaoAuto;
     app.rotulos.orcamento = a.orcamentoRotulos; app.rotulos.densidade = a.densidadeRotulos;
+    const R = document.documentElement.style; R.setProperty('--scan-op', a.scanlines); R.setProperty('--ruido-op', a.ruido); R.setProperty('--fs', a.fonteBase); R.setProperty('--fw', a.fonteLargura + '%');
+    B.classList.toggle('anim-reduzidas', !!a.animacoesReduzidas); app.fpsMax = a.fpsMax || 60; B.classList.toggle('sb-recolhida', !!a.lateralRecolhida);
+    if (app.shell) app.shell.aoAjustar();
     for (const [k] of PAINEIS) B.classList.toggle('sem-' + k, !a.paineis[k]);
     B.classList.toggle('sem-direita', !a.paineis.status && !a.paineis.minimapa);
     if (app.som.ligado !== a.som) { a.som ? app.som.ligar() : app.som.desligar(); }

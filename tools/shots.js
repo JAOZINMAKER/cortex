@@ -12,6 +12,7 @@ const espera = ms => new Promise(r => setTimeout(r, ms));
   const erros = []; page.on('console', m => { if (m.type() === 'error') erros.push(m.text()); }); page.on('pageerror', e => erros.push(String(e)));
   await page.goto(URL, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__cortex && window.__cortex.pronto(), null, { timeout: 120000 });
+  await page.evaluate(() => { location.hash = '#/cerebro'; }); await espera(400);
   await page.evaluate(() => { __cortex.pararGiro(); __cortex.enquadrar(); });
   await espera(5000);
   const so = process.env.SO ? process.env.SO.split(',') : null; const quer = n => !so || so.includes(n);
@@ -23,6 +24,17 @@ const espera = ms => new Promise(r => setTimeout(r, ms));
   if (quer('05')) { await page.evaluate(() => __cortex.abrirMaquina()); await espera(2600); await shot('05-maquina.png'); await page.evaluate(() => __cortex.fecharMaquina()); }
   if (quer('06')) { await page.evaluate(() => __cortex.comando('')); await page.keyboard.type(process.env.BUSCA || 'link', { delay: 40 }); await espera(1400); await page.keyboard.press('ArrowDown'); await espera(300); await shot('06-comando.png'); await page.keyboard.press('Escape'); }
   if (quer('07')) { await page.evaluate(() => __cortex.conectar()); await espera(1200); await shot('07-conectar.png'); await page.evaluate(() => __cortex.fecharConectar()); }
+  // V4: páginas do app
+  const pag = async (h, n, extra, t = 2600) => { if (!quer(n.slice(0, 2))) return; await page.evaluate(h => { location.hash = h; }, h); await espera(t); if (extra) await extra(); await page.screenshot({ path: path.join(OUT, n) }); console.log('print', n); };
+  const PROJ = process.env.PROJ || 'cortex';
+  await pag('#/projetos', '20-projetos.png', null, 3500);
+  await pag(`#/projetos/${PROJ}/atividade`, '21-pagina-projeto.png', null, 3000);
+  await pag('#/skills/cortex-onde-parei', '22-skills.png', async () => { await page.evaluate(() => { const f = document.querySelector('[data-sk="cortex-onde-parei"] [data-exec]'); if (f) { f.hidden = false; f.requestSubmit(); } }); await espera(2500); });
+  await pag('#/config/aparencia', '23-config-aparencia.png', async () => { await page.evaluate(() => { const b = document.querySelector('[data-novo]'); if (b) b.click(); }); await espera(800); await page.evaluate(() => { const i = document.querySelector('[data-tk="acento"]'); if (i) { i.value = '#ff8a3d'; i.dispatchEvent(new Event('input')); } document.querySelector('[data-editor]')?.scrollIntoView({ block: 'start' }); }); await espera(1200); });
+  await page.evaluate(() => { const c = document.querySelector('[data-cancelar]'); if (c) c.click(); });
+  await pag('#/config/fontes', '24-config-fontes.png');
+  await pag('#/diario', '25-diario.png', async () => { await page.evaluate(() => { const b = document.querySelector('.dc [data-ler]'); if (b) b.click(); }); await espera(1500); });
+  await page.evaluate(() => { location.hash = '#/cerebro'; }); await espera(800);
   console.log('fps', await page.evaluate(() => __cortex.fps().toFixed(1)), 'ms/quadro(js)', await page.evaluate(() => __cortex.ms().toFixed(2)));
   if (erros.length) console.log('ERROS DO CONSOLE:\n' + [...new Set(erros)].slice(0, 20).join('\n')); else console.log('console limpo');
   await browser.close();

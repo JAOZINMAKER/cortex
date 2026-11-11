@@ -1,7 +1,7 @@
 // HUD permanente: contadores, log, status, minimapa, réguas, avisos.
 import * as tema from './tema.js';
 const U = () => tema.ui();
-import { $, el, esc, fmtN, fmtK, fmtMs, fmtData, FONTE_ROT } from './util.js';
+import { tela, $, el, esc, fmtN, fmtK, fmtMs, fmtData, FONTE_ROT } from './util.js';
 
 export class Hud {
   constructor(cerebro) {
@@ -17,7 +17,7 @@ export class Hud {
     this.st = Object.fromEntries(sts.map(([k, id, u]) => { const d = el('div', 'st', `<div class="k">${k}</div><div class="v">—<small>${u}</small></div>`); this.stEl.appendChild(d); return [id, { v: d.querySelector('.v'), u }]; }));
     this.miniBase = null;
   }
-  _resize() { const dpr = Math.min(devicePixelRatio, 2); this.dpr = dpr; this.regua.width = innerWidth * dpr; this.regua.height = innerHeight * dpr; }
+  _resize() { const dpr = Math.min(devicePixelRatio, 2); this.dpr = dpr; const T = tela(); this.regua.width = T.w * dpr; this.regua.height = T.h * dpr; }
   setGrafo(g) { this.g = g; for (const c of this.cont) c.alvo = g.contadores[c.k] || 0; this._detalhes(); this.miniBase = null; }
   _detalhes() {
     const g = this.g, k = g.contadores; const reg = g.regioes.length;
@@ -52,7 +52,7 @@ export class Hud {
   // réguas nas bordas com coordenadas reais da cena no plano do alvo
   _regua() {
     const c = this.c; if (!c.mudouQuadro && this._rOk) return; this._rOk = true;
-    const ctx = this.rctx, d = this.dpr, W = innerWidth, H = innerHeight; ctx.setTransform(d, 0, 0, d, 0, 0); ctx.clearRect(0, 0, W, H);
+    const ctx = this.rctx, d = this.dpr, W = this.c.w, H = this.c.h; ctx.setTransform(d, 0, 0, d, 0, 0); ctx.clearRect(0, 0, W, H);
     const cam = c.camera, t = c.controls.target; const dist = c.dist(); const vh = 2 * Math.tan(cam.fov * Math.PI / 360) * dist; const upp = vh / H; // unidades por pixel no plano do alvo
     ctx.font = '8px Martian Mono Variable, monospace'; ctx.fillStyle = U().apagado; ctx.strokeStyle = U().apagado; ctx.lineWidth = 1;
     const passo = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000].find(p => p / upp > 9) || 5000;

@@ -12,6 +12,8 @@ export const fmtRel = t => { if (!t) return '—'; const s = (Date.now() - t) / 
 export const FONTE_ROT = { obsidian: 'OBS', git: 'GIT', claude: 'IA', pasta: 'PST', sistema: 'SYS', diario: 'DIÁRIO' };
 export const rotFonte = n => n.diario || n.fonte === 'diario' ? 'DIÁRIO' : (FONTE_ROT[n.fonte] || String(n.fonte || '').toUpperCase());
 export const TIPO_ROT = { nota: 'NOTA', commit: 'COMMIT', branch: 'BRANCH', worktree: 'WTREE', sessao: 'SESSÃO', arquivo: 'ARQ', doc: 'DOC', dia: 'DIA' };
+// área do cérebro dentro da casca do app (barra de título e lateral ficam de fora)
+export function tela() { const e = document.getElementById('sec-cerebro'); const r = e ? e.getBoundingClientRect() : null; return r && r.width ? { x: r.left, y: r.top, w: r.width, h: r.height } : { x: 0, y: 0, w: innerWidth, h: innerHeight }; }
 export const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 export function spark(vals, w = 56, h = 12) {
   const m = Math.max(1, ...vals); const bw = w / vals.length;

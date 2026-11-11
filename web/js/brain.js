@@ -4,6 +4,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { pontoCortex, pontoCerebelo, pontoEspinha, ALFA_MIN, ALFA_MAX } from './anatomia.js';
 
 import * as tema from './tema.js';
+import { tela } from './util.js';
 const DIA = 864e5;
 
 const VS_NO = `
@@ -85,7 +86,7 @@ export class Cerebro {
     addEventListener('resize', () => this.resize());
   }
   resize() {
-    const w = innerWidth, h = innerHeight; this.w = w; this.h = h;
+    const T = tela(); const w = Math.round(T.w), h = Math.round(T.h); this.w = w; this.h = h;
     this.renderer.setSize(w, h, false); this.camera.aspect = w / h; this._offset(); this.camera.updateProjectionMatrix();
     this.u.uPx.value = h * this.renderer.getPixelRatio() * 0.9; if (this.matPulso) this.matPulso.uniforms.uPx.value = this.u.uPx.value; if (this.matTecido) this.matTecido.uniforms.uPx.value = this.u.uPx.value;
     this.camMudou = true;
@@ -235,7 +236,7 @@ export class Cerebro {
   }
   enquadrar(animar = true) {
     const b = this.bb; const hc = b.y1 - b.y0; const topo = Math.max(b.y1, ...this.g.regioes.filter(r => r.hemisferio !== 'TRONCO').map(r => r.centro[1])) + 50, base = Math.max(this.espinha.y0 - 20, b.y0 - hc * 0.75);
-    const W = this.w || innerWidth, H = this.h || innerHeight; const A = this.area || { l: 312, r: 292, t: 92, b: 58 }; const fv = Math.max(0.4, (H - A.t - A.b) / H), fh = Math.max(0.3, (W - A.l - A.r) / W);
+    const W = this.w || tela().w, H = this.h || tela().h; const A = this.area || { l: 312, r: 292, t: 92, b: 58 }; const fv = Math.max(0.4, (H - A.t - A.b) / H), fh = Math.max(0.3, (W - A.l - A.r) / W);
     const tf = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const dV = (topo - base) / fv / (2 * tf), dH = (b.x1 - b.x0) * 1.25 / fh / (2 * tf * (W / H));
     const d = Math.max(dV, dH) * 1.08;
@@ -367,6 +368,8 @@ export class Cerebro {
     this.relogio += dt; this.u.uRelogio.value = this.relogio;
     if (this.trans) { const t = Math.min(1, (performance.now() - this.trans.t0) / 1000 / this.trans.dur); this.u.uTrans.value = t; this.us.uTransS.value = Math.max(0, (t - 0.55) / 0.45) ** 2; this.camMudou = true;
       if (t >= 1) { this.trans = null; this.nosObj.geometry.setDrawRange(0, this.N); } }
+    if (!this.trans && this.nosObj) { const lim = Math.min(this.N, this.limite || Infinity); if (this.nosObj.geometry.drawRange.count !== lim) this.nosObj.geometry.setDrawRange(0, lim); }
+    this.us.uMul.value = (this.modo && this.modo !== 'calor' ? 0.45 : 1) * (this.qualidade === 'baixa' ? 0.35 : this.qualidade === 'media' ? 0.7 : 1);
     if (this.voo) { const v = this.voo; v.t = (performance.now() - v.t0) / 1000 / v.dur; const e = v.t >= 1 ? 1 : 1 - Math.pow(1 - v.t, 4); this.controls.target.lerpVectors(v.a0, v.a1, e); this.camera.position.lerpVectors(v.p0, v.p1, e); if (v.t >= 1) this.voo = null; }
     if (this.autoGiro && !this.voo) { const t = this.controls.target, p = this.camera.position; const a = dt * 0.045; const dx = p.x - t.x, dz = p.z - t.z; p.x = t.x + dx * Math.cos(a) - dz * Math.sin(a); p.z = t.z + dx * Math.sin(a) + dz * Math.cos(a); }
     if (Math.abs(this.offset - this.offsetAlvo) > 0.5) { this.offset += (this.offsetAlvo - this.offset) * Math.min(1, dt * 7); this._offset(); this.camera.updateProjectionMatrix(); this.camMudou = true; }

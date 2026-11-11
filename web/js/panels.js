@@ -9,7 +9,7 @@ export class PainelNo {
   constructor(app) { this.app = app; this.e = $('#painel-no'); this.aba = 'conteudo'; }
   async abrir(i) {
     const app = this.app, g = app.g, n = g.nos[i]; this.i = i; this.n = n; this.d = null;
-    this.e.hidden = false; document.body.classList.add('painel-aberto'); const L = app.cerebro.area ? app.cerebro.area.l : 312; app.cerebro.setOffset(Math.max(0, innerWidth / 2 - (L + innerWidth - 560) / 2));
+    this.e.hidden = false; document.body.classList.add('painel-aberto'); const L = app.cerebro.area ? app.cerebro.area.l : 312; const W = app.cerebro.w; app.cerebro.setOffset(Math.max(0, W / 2 - (L + W - 560) / 2));
     this._render();
     try { const r = await fetch('/api/no/' + encodeURIComponent(n.id)); if (r.ok) { const d = await r.json(); if (this.n === n) { this.d = d; this._render(); app.rotulos.setDetalhe(d); } } } catch {}
   }
@@ -127,7 +127,7 @@ export class Comando {
   fechar() { this.e.hidden = true; }
   acoes() {
     const a = this.app; const s = a.sobre;
-    return [['conectar', 'CONECTAR FONTE', 'ABRIR TELA DE CONEXÃO', () => a.conectar.abrir()], ['reconstruir', 'RECONSTRUIR CÉREBRO', 'POST /api/reconstruir', () => a.reconstruir()], ['replay', 'REPLAY DO CRESCIMENTO', 'DO PRIMEIRO REGISTRO ATÉ AGORA', () => a.replay.iniciar()], ['maquina', 'PAINEL DA MÁQUINA', 'TECLA M', () => a.maquina.alternar(true)],
+    return [...(a.shell ? a.shell.acoes() : []), ['conectar', 'CONECTAR FONTE', 'ABRIR TELA DE CONEXÃO', () => a.conectar.abrir()], ['reconstruir', 'RECONSTRUIR CÉREBRO', 'POST /api/reconstruir', () => a.reconstruir()], ['replay', 'REPLAY DO CRESCIMENTO', 'DO PRIMEIRO REGISTRO ATÉ AGORA', () => a.replay.iniciar()], ['maquina', 'PAINEL DA MÁQUINA', 'TECLA M', () => a.maquina.alternar(true)],
       ['enquadrar', 'ENQUADRAR CÉREBRO INTEIRO', 'TECLA 0', () => a.cerebro.enquadrar()],
       ['tema', 'TEMA: CICLAR (' + tema.atual().nome + ' → PRÓXIMO)', 'TECLA T', () => a.ajustes.set('tema', tema.NOMES[(tema.NOMES.indexOf(tema.nome()) + 1) % tema.NOMES.length])], ...tema.NOMES.map(n => ['tema ' + n, 'TEMA: ' + tema.TEMAS[n].nome + (tema.nome() === n ? ' (ATUAL)' : ''), tema.TEMAS[n].desc.toUpperCase(), () => a.ajustes.set('tema', n)]),
       ['visao painel', 'VISÃO: ABRIR FILTROS', 'TECLA V', () => a.visoes.alternar(true)], ['tudo visao', 'VISÃO: TUDO (VOLTAR)', 'ESC', () => a.visoes.aplicar({ id: 'tudo', nome: 'TUDO' })],
@@ -141,14 +141,18 @@ export class Comando {
   }
   async buscar() {
     const q = this.inp.value.trim(); const ql = q.toLowerCase(); const seq = ++this.seq; const g = this.app.g;
-    const acoes = this.acoes().filter(x => !q || x[1].toLowerCase().includes(ql.replace(/^>/, '')) || x[0].includes(ql)).slice(0, q.startsWith('>') ? 60 : q ? 8 : 8).map(x => ({ acao: x }));
+    const norm = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const toks = norm(q.replace(/^>/, '')).split(/\s+/).filter(Boolean);
+    const acoes = this.acoes().map(x => { const h = norm(x[0] + ' ' + x[1]); if (!toks.length) return [x, 0]; if (!toks.every(t => h.includes(t))) return null; return [x, (norm(x[1]).startsWith(toks[0]) ? 2 : 0) + (norm(x[0]).split(' ').includes(toks[0]) ? 1 : 0) - x[1].length / 1000]; })
+      .filter(Boolean).sort((a, b) => b[1] - a[1]).slice(0, q.startsWith('>') ? 60 : q ? 10 : 8).map(([x]) => ({ acao: x }));
+    this.acoesPrimeiro = toks.length > 1 && acoes.length > 0 || (toks.length === 1 && acoes.length && ['ir', 'config', 'projeto', 'skill', 'tema', 'visao', 'esconder', 'mostrar', 'ajustes'].includes(toks[0]));
     let locais = [];
     if (q && !q.startsWith('>')) { for (let i = 0; i < g.nos.length && locais.length < 40; i++) { const n = g.nos[i]; if (n.titulo.toLowerCase().includes(ql) || n.idCurto.startsWith(ql) || n.hash.startsWith(ql)) locais.push({ id: n.id, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte, regiao: n.regiao, trecho: n.caminho || '' }); } }
-    this.itens = [...locais.map(x => ({ no: x })), ...acoes]; this.sel = 0; this._render(q, 'LOCAL');
+    this.itens = this.acoesPrimeiro ? [...acoes, ...locais.map(x => ({ no: x }))] : [...locais.map(x => ({ no: x })), ...acoes]; this.sel = 0; this._render(q, 'LOCAL');
     if (q.length >= 2 && !q.startsWith('>')) {
       try { const r = await fetch('/api/busca?q=' + encodeURIComponent(q)); if (!r.ok || seq !== this.seq) return; const d = await r.json(); const vistos = new Set(locais.map(x => x.id));
         const extra = (d.resultados || []).filter(x => !vistos.has(x.id)); if (!extra.length) { this._render(q, 'LOCAL + SERVIDOR'); return; }
-        this.itens = [...locais.map(x => ({ no: x })), ...extra.map(x => ({ no: x, srv: 1 })), ...acoes]; this._render(q, 'LOCAL + SERVIDOR'); } catch {}
+        this.itens = this.acoesPrimeiro ? [...acoes, ...locais.map(x => ({ no: x })), ...extra.map(x => ({ no: x, srv: 1 }))] : [...locais.map(x => ({ no: x })), ...extra.map(x => ({ no: x, srv: 1 })), ...acoes]; this._render(q, 'LOCAL + SERVIDOR'); } catch {}
     }
   }
   _render(q, origem) {
@@ -165,7 +169,7 @@ export class Comando {
   }
   _marcar() { this.res.querySelectorAll('[data-k]').forEach(d => d.classList.toggle('sel', +d.dataset.k === this.sel)); const s = this.res.querySelector('.sel'); if (s) s.scrollIntoView({ block: 'nearest' }); }
   mover(d) { if (!this.itens.length) return; this.sel = (this.sel + d + this.itens.length) % this.itens.length; this._marcar(); }
-  executar(it) { if (!it) return; this.fechar(); if (it.acao) it.acao[3](); else this.app.focarId(it.no.id); }
+  executar(it) { if (!it) return; this.fechar(); if (it.acao) it.acao[3](); else this.app.abrirNoCerebro(it.no.id); }
 }
 
 // ====================================================================== conectar

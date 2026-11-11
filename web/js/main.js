@@ -9,7 +9,8 @@ import { Som } from './sound.js';
 import { grafoBench } from './bench.js';
 import { Visoes, TUDO, vazia } from './visao.js';
 import { Ajustes } from './ajustes.js';
-import { $, el, esc, fmtN, fmtK, fmtData, fmtMs, fmtRel, clamp, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
+import { Shell } from './shell.js';
+import { tela, $, el, esc, fmtN, fmtK, fmtData, fmtMs, fmtRel, clamp, FONTE_ROT, rotFonte, TIPO_ROT } from './util.js';
 
 const DIA = 864e5;
 const params = new URLSearchParams(location.search);
@@ -27,6 +28,7 @@ class Replay {
     addEventListener('resize', () => this.desenhar());
   }
   setGrafo(g) { const c = this.app.cerebro; this.total = Math.max(1, (c.t1 - c.t0) / DIA); this.hist = null; this.desenhar(); this._info(); if (!this.ativo) this._cursor(1); }
+  setVel(v) { if (![1, 10, 100, 1000].includes(+v)) return; this.vel = +v; $('#rp-vel').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.textContent === v + 'X')); this._nasc(); this._info(); }
   _nasc() { this.app.cerebro.u.uNascDur.value = this.ativo ? Math.max(0.4, this.vel * 0.9) : 1; }
   iniciar() { if (!this.ativo || this.t >= this.total - 0.01) this.t = 0; this.ativo = true; this.tocando = true; this._nasc(); this._botao(); this.app.desfocar(); this.app.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: `REPLAY INICIADO · ${Math.round(this.total)} DIAS · ${this.vel}X` }); }
   pausar() { this.tocando = false; this._botao(); }
@@ -54,18 +56,19 @@ class Replay {
 class App {
   constructor() {
     this.cerebro = new Cerebro($('#gl')); this.rotulos = new Rotulos(this.cerebro, $('#rotulos'), $('#anel')); this.hud = new Hud(this.cerebro);
-    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this);
+    this.painel = new PainelNo(this); this.maquina = new PainelMaquina(this); this.comando = new Comando(this); this.conectar = new Conectar(this); this.som = new Som(); this.replay = new Replay(this); this.visoes = new Visoes(this); this.ajustes = new Ajustes(this); this.shell = new Shell(this); this.notif = { registroDiario: true, commitNovo: true, sessaoNova: false }; this.fpsMax = 60;
     this.modo = null; this.carregando = true; this.ultEvento = 0; this.evts = []; this.ws = null;
     this.sobre = [{ id: 'calor', nome: 'CALOR DE ATIVIDADE', tecla: 1 }, { id: 'idade', nome: 'IDADE DAS NOTAS', tecla: 2 }, { id: 'cluster', nome: 'CLUSTERS POR TEMA', tecla: 3 }, { id: 'caminho', nome: 'CAMINHO MAIS CURTO', tecla: 4 }, { id: 'orfaos', nome: 'ÓRFÃOS SEM LIGAÇÃO', tecla: 5 }];
     this._sobreUI(); this._entrada();
     this.hud.onClicarLog = id => this.focarId(id);
     this.rotulos.onIsolar = r => { if (r.hemisferio === 'TRONCO') return; if (vazia(this.visoes.atual)) this.visoes.isolarProjeto(r.projeto || r.id.replace(/^r_/, '')); else this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'VISÃO JÁ ISOLADA · ESC VOLTA PARA TUDO' }); };
     $('#btn-visao').onclick = () => this.visoes.alternar(); $('#btn-ajustes').onclick = () => this.ajustes.alternar(); $('#visao-sel [data-ajustes]').onclick = () => this.ajustes.alternar();
-    tema.aoTrocar((T, n) => { this.hud.miniBase = null; this.hud._rOk = false; this.replay.desenhar(); if (this.maquina.aberto) this.maquina._barras(); $('#btn-tema').textContent = '[T] TEMA: ' + T.nome; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'TEMA ' + T.nome + ' APLICADO' }); });
+    tema.aoTrocar((T, n) => { this.hud.miniBase = null; this.hud._rOk = false; this.replay.desenhar(); if (this.maquina.aberto) this.maquina._barras(); $('#btn-tema').textContent = '[T] TEMA: ' + T.nome; if (String(n).startsWith('__')) return; this.hud.log({ t: Date.now(), nivel: 'INFO', fonte: 'sistema', msg: 'TEMA ' + T.nome + ' APLICADO' }); });
     $('#btn-tema').textContent = '[T] TEMA: ' + tema.atual().nome; $('#btn-tema').onclick = () => this.ajustes.set('tema', tema.NOMES[(tema.NOMES.indexOf(tema.nome()) + 1) % tema.NOMES.length]);
     $('#btn-conectar').onclick = () => this.conectar.abrir(); $('#btn-maquina').onclick = () => this.maquina.alternar(); $('#btn-cmd').onclick = () => this.comando.abrir(); $('#btn-som').onclick = () => this.alternarSom();
     if (BENCH) $('#bench-selo').hidden = false;
     this.carregar().then(async () => { if (BENCH) return; try { const r = await fetch('/api/maquina'); if (r.ok) { const d = await r.json(); this.maquina.atualizar(d); for (const ev of (d.telemetria || []).slice(-160)) { this.hud.log({ ...ev, nivel: ev.nivel === 'INFO' || ev.nivel === 'ALERTA' || ev.nivel === 'PULSO' ? ev.nivel : 'HIST' }, false); this.maquina.evento(ev); } } } catch {} this.conectarWS(); });
+    this.shell.rotear();
     this._loop();
   }
   async carregar() {
@@ -75,13 +78,20 @@ class App {
     await this.ajustes.carregar(); await this.visoes.carregarListas();
     const vi = this.ajustes.a.visaoInicial; const v0 = this.visoes.daUrl() || (vi && vi !== 'tudo' ? { id: vi, _soId: true } : TUDO);
     for (let k = 0; k < 20 && !this.g; k++) { await this.visoes.aplicar(v0, { url: !!this.visoes.daUrl() }); if (!this.g) await new Promise(r => setTimeout(r, 1500)); }
-    this.carregando = false;
+    this.carregando = false; this.shell.rotear();
+    try { const c = await fetch('/api/config'); if (c.ok) { const d = await c.json(); if (d.notificacoes) Object.assign(this.notif, d.notificacoes); if (d.desempenho) { if (d.desempenho.fpsMax) this.fpsMax = d.desempenho.fpsMax; this.cerebro.limite = d.desempenho.limiteNeuronios; this.cerebro.qualidade = d.desempenho.qualidadeSinapses; } if (d.cerebro?.velocidadeReplay) this.replay.setVel(d.cerebro.velocidadeReplay); } } catch {}
   }
   // área livre do canvas conforme os painéis visíveis
   relayout() {
-    const B = document.body.classList; this.cerebro.area = { l: B.contains('sem-log') ? 0 : 312, r: B.contains('sem-direita') ? 0 : 292, t: 92, b: B.contains('sem-linhaTempo') ? 0 : 58 };
+    const B = document.body.classList; this.cerebro.area = { l: B.contains('sem-log') ? 0 : 312, r: B.contains('sem-direita') ? 0 : 292, t: 92 + (B.contains('com-proj-barra') ? 120 : 0), b: B.contains('sem-linhaTempo') ? 0 : 58 };
     this.hud._rOk = false; this.cerebro.camMudou = true; if (this.g) this.replay.desenhar();
   }
+  abrirNoCerebro(id, projeto) {
+    this._focoPendente = id; this.shell.ir(projeto ? `#/projetos/${encodeURIComponent(projeto)}/cerebro` : '#/cerebro');
+    setTimeout(() => this._tentarFoco(), 250);
+  }
+  _tentarFoco() { const id = this._focoPendente; if (!id) return; const i = this.cerebro.ids?.get(id); if (i != null && !this.cerebro.emTransicao()) { this._focoPendente = null; this.focar(i); } else if (this.visoes.atual && this.visoes.atual.id !== 'tudo' && i == null && !this.atualizando) { this.visoes.aplicar(TUDO); setTimeout(() => this._tentarFoco(), 600); } else setTimeout(() => this._tentarFoco(), 300); }
+  toast(t1, t2, id) { const box = $('#toasts'); const d = el('div', 'toast'); d.innerHTML = `<b>${esc(t1)}</b><span>${esc(String(t2 || '').slice(0, 140))}</span>`; if (id) { d.classList.add('clic'); d.onclick = () => this.abrirNoCerebro(id); } box.prepend(d); setTimeout(() => d.classList.add('sai'), 5200); setTimeout(() => d.remove(), 5800); while (box.children.length > 4) box.lastChild.remove(); }
   avisoGrande(t1, t2) { const a = $('#aviso-grande'); a.querySelector('.ag1').textContent = t1; a.querySelector('.ag2').textContent = t2 || ''; a.hidden = false; a.style.animation = 'none'; void a.offsetWidth; a.style.animation = ''; clearTimeout(this._agT); this._agT = setTimeout(() => a.hidden = true, 3000); }
   aplicarGrafo(g, opt = {}) {
     for (const n of g.nos) if (n.fonte === 'diario' || (!n.diario && /[\\/]diario[\\/]/i.test(n.caminho || '') && /cortex/i.test(n.caminho || ''))) { n.diario = true; n.fonte = 'diario'; }
@@ -103,11 +113,15 @@ class App {
     ws.onclose = () => { this.hud.log({ t: Date.now(), nivel: 'ALERTA', fonte: 'sistema', msg: 'WEBSOCKET CAIU · RECONECTANDO EM 2S' }); setTimeout(() => this.conectarWS(), 2000); };
   }
   async mensagem(d) {
+    if (d.tipo === 'config' && d.config) { if (d.config.notificacoes) Object.assign(this.notif, d.config.notificacoes); return; }
+    if (d.tipo === 'temas') { try { const r = await fetch('/api/temas'); const t = await r.json(); for (const x of t.temas || []) tema.registrar(x); } catch {} return; }
     if (d.tipo === 'evento') {
       const i = d.id != null ? this.cerebro.ids.get(d.id) : undefined; const hist = d.nivel === 'HIST';
       this.hud.log(d, !hist); this.maquina.evento(d);
       if (i != null && (!hist || Math.random() < 0.5)) this.cerebro.pulsar(i, d.nivel);
-      if (!hist) { this.ultEvento = performance.now(); this.som.clique(d.nivel); this.evts.push(performance.now()); }
+      if (!hist) { this.ultEvento = performance.now(); this.som.clique(d.nivel); this.evts.push(performance.now());
+        if (this.notif.registroDiario && d.fonte === 'diario' && /NASCEU|REGISTR/i.test(d.msg || '')) this.toast('DIÁRIO', d.msg, d.id);
+        else if (this.notif.commitNovo && d.fonte === 'git' && /COMMIT/i.test(d.msg || '') && !/LENDO|OK/.test(d.msg)) this.toast('COMMIT NOVO', d.msg, d.id); }
     } else if (d.tipo === 'status') this.hud.status = d;
     else if (d.tipo === 'maquina') this.maquina.atualizar(d);
     else if (d.tipo === 'grafo') { if (this.g && d.versao === this.g.versao) return; this.atualizando = true; await this.visoes.recarregar(); this.atualizando = false; }
@@ -151,19 +165,24 @@ class App {
   // ---------------------------------------------------------------- entrada
   _entrada() {
     const cv = $('#gl'); let down = null;
+    const loc = ev => { const T = tela(); return [ev.clientX - T.x, ev.clientY - T.y]; };
     cv.addEventListener('pointerdown', ev => { down = [ev.clientX, ev.clientY]; });
     cv.addEventListener('pointerup', ev => {
       if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 4) return; down = null;
-      const i = this.cerebro.pegar(ev.clientX, ev.clientY, 14);
+      const [lx, ly] = loc(ev); const i = this.cerebro.pegar(lx, ly, 14);
       if (i >= 0) { if (ev.shiftKey && this.cerebro.foco >= 0 && this.cerebro.foco !== i) this.tracar(this.cerebro.foco, i); else this.focar(i); }
       else if (this.cerebro.foco >= 0) this.desfocar();
     });
     cv.addEventListener('dblclick', () => { this.desfocar(); this.cerebro.enquadrar(); });
-    cv.addEventListener('pointermove', ev => { this.mouse = [ev.clientX, ev.clientY]; });
+    cv.addEventListener('pointermove', ev => { this.mouse = loc(ev); });
     cv.addEventListener('pointerleave', () => { this.mouse = null; $('#dica').style.display = 'none'; });
     addEventListener('keydown', ev => {
       const alvo = ev.target; const digitando = alvo && (alvo.tagName === 'INPUT' || alvo.tagName === 'SELECT' || alvo.tagName === 'TEXTAREA');
+      if (this.shell.tecla(ev)) { ev.preventDefault(); return; }
       if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); this.comando.aberto ? this.comando.fechar() : this.comando.abrir(); return; }
+      const noCer = !this.cerebro.pausado;
+      if (ev.key === 'Escape' && !noCer) { if (this.comando.aberto) this.comando.fechar(); return; }
+      if (!noCer) { if (!digitando && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && this.shell.rota.projeto) { this.shell.paginas.projetos.vizinho(this.shell.rota.projeto, ev.key === 'ArrowRight' ? 1 : -1, this.shell.rota.aba); } if (!digitando && this.shell.rota.projeto && ev.key >= '1' && ev.key <= '5') this.shell.ir(`#/projetos/${encodeURIComponent(this.shell.rota.projeto)}/${['cerebro', 'atividade', 'resumo', 'fontes', 'diario'][+ev.key - 1]}`); return; }
       if (ev.key === 'Escape') { if (this.comando.aberto) this.comando.fechar(); else if (this.visoes.aberto) this.visoes.alternar(false); else if (this.ajustes.aberto) this.ajustes.alternar(false); else if (this.conectar.aberto) this.conectar.fechar(); else if (this.maquina.aberto) this.maquina.alternar(false); else if (this.cerebro.foco >= 0) this.desfocar(); else if (this.modo) this.alternarModo(this.modo); else if (!vazia(this.visoes.atual)) this.visoes.aplicar(TUDO); return; }
       if (digitando) return;
       const k = ev.key.toLowerCase();
@@ -182,9 +201,10 @@ class App {
     let ult = performance.now(), fps = 60, ms = 0, q = 0;
     const tick = () => {
       requestAnimationFrame(tick);
-      const t = performance.now(); const dt = Math.min(0.1, (t - ult) / 1000); ult = t; fps += ((1 / Math.max(dt, 1e-3)) - fps) * 0.08; this.fpsAtual = fps;
+      const t = performance.now(); if (this.fpsMax && this.fpsMax < 119 && t - ult < 1000 / this.fpsMax - 2) return; const dt = Math.min(0.1, (t - ult) / 1000); ult = t; fps += ((1 / Math.max(dt, 1e-3)) - fps) * 0.08; this.fpsAtual = fps;
       if (!this.g) { const st = this.hud.status; const mt = $('#montando'); const m = st.pronto === false || st.fase === 'MONTANDO'; if (mt.hidden === m) mt.hidden = !m; if (m) this.hud.aviso('MONTANDO O CÉREBRO…', false); return; }
       const t0 = performance.now();
+      if (this.cerebro.pausado) { this.replay.quadro(dt); return; } // fora da tela: não desenha
       this.replay.quadro(dt); this.cerebro.quadro(dt); this.rotulos.atualizar(); if (++q % 2 === 0) this._dica();
       const c = this.cerebro, g = this.g; const vivos = this.replay.ativo ? this.replay.vivos : g.nos.length; c.nVivos = vivos;
       this.hud.quadro(dt, fps, ms, { nos: vivos, sin: g.sinapses.length, rot: this.rotulos.nRotulos || 0, pul: c.pulsos.length });

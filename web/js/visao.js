@@ -48,7 +48,7 @@ export class Visoes {
   _url(v) {
     try { const q = new URLSearchParams(location.search); for (const k of [...LISTAS, 'desde', 'ate', 'grauMin', 'vizinhos', 'texto', 'visao']) q.delete(k);
       if (!vazia(v)) { const salva = this.salvas.find(s => s.id === v.id && s.id !== 'url' && s.id !== 'ad-hoc'); if (salva && mesma(salva, v)) q.set('visao', v.id); else for (const [k, x] of paraQuery(v)) q.set(k, x); }
-      const s = q.toString(); history.replaceState(null, '', location.pathname + (s ? '?' + s : '')); } catch {}
+      const s = q.toString(); history.replaceState(null, '', location.pathname + (s ? '?' + s : '') + location.hash); } catch {}
   }
   resolver(v) { if (v && v._soId) return this.salvas.find(s => s.id === v.id) || TUDO; if (v && (v.id === 'url' || v.id === 'ad-hoc')) return this.salvas.find(s => s.id !== 'tudo' && mesma(s, v)) || v; return v || TUDO; }
   // aplicar ------------------------------------------------------

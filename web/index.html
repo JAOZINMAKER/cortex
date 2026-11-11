@@ -15,6 +15,17 @@
 </script>
 </head>
 <body>
+<header id="tb" class="tb">
+  <div class="tb-logo"><svg viewBox="0 0 16 16" width="14" height="14"><rect x="1" y="1" width="14" height="14" fill="none" stroke="currentColor"/><rect x="5" y="5" width="6" height="6" fill="currentColor" class="tb-nucleo"/></svg><b>CÓRTEX</b></div>
+  <nav id="migalhas" class="migalhas"></nav>
+  <div class="tb-arrasto"></div>
+  <button id="tb-cmd" class="tb-cmd">BUSCAR OU IR PARA… <kbd>CTRL+K</kbd></button>
+  <div id="tb-janela" class="tb-janela" hidden><button data-j="min" title="MINIMIZAR"><svg viewBox="0 0 10 10"><path d="M1 5.5h8" stroke="currentColor"/></svg></button><button data-j="max" title="MAXIMIZAR"><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor"/></svg></button><button data-j="fechar" class="fechar" title="FECHAR"><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor"/></svg></button></div>
+</header>
+<nav id="sb" class="sb"></nav>
+<main id="app">
+<div id="sec-cerebro" class="sec">
+<div id="proj-barra" class="proj-barra" hidden></div>
 <canvas id="gl"></canvas>
 <canvas id="regua"></canvas>
 <div id="rotulos"></div>
@@ -75,22 +86,12 @@
 <section id="painel-visao" class="painel-lat esq" hidden></section>
 <section id="painel-ajustes" class="painel-lat dir" hidden></section>
 <div id="montando" class="montando" hidden><div class="m1">MONTANDO O CÉREBRO<span class="cursor">…</span></div><div class="m2"></div></div>
-<div id="aviso-grande" class="aviso-grande" hidden><div class="ag1"></div><div class="ag2"></div></div>
 
 <!-- Neurônio aberto -->
 <section id="painel-no" class="painel-no" hidden></section>
 
 <!-- Painel da máquina -->
 <section id="maquina" class="maquina" hidden></section>
-
-<!-- Barra de comando -->
-<div id="cmd" class="modal-fundo" hidden>
-  <div class="cmd">
-    <div class="cmd-topo"><span class="acento">&gt;</span><input id="cmd-in" autocomplete="off" spellcheck="false" placeholder="BUSCAR NEURÔNIO, NOTA, COMMIT, SESSÃO OU AÇÃO"><span class="cmd-dica">↑↓ ENTER ESC</span></div>
-    <div id="cmd-res" class="cmd-res"></div>
-    <div id="cmd-rodape" class="cmd-rodape"></div>
-  </div>
-</div>
 
 <!-- Conectar -->
 <div id="conectar" class="modal-fundo" hidden>
@@ -104,6 +105,20 @@
       <button type="submit">CONECTAR ▸</button>
     </form>
     <div id="con-msg" class="con-msg"></div>
+  </div>
+</div>
+
+</div>
+<div id="sec-pagina" class="sec pagina" hidden></div>
+</main>
+<div id="toasts" class="toasts"></div>
+<div id="aviso-grande" class="aviso-grande" hidden><div class="ag1"></div><div class="ag2"></div></div>
+<!-- Barra de comando -->
+<div id="cmd" class="modal-fundo" hidden>
+  <div class="cmd">
+    <div class="cmd-topo"><span class="acento">&gt;</span><input id="cmd-in" autocomplete="off" spellcheck="false" placeholder="BUSCAR NEURÔNIO, NOTA, COMMIT, SESSÃO OU AÇÃO"><span class="cmd-dica">↑↓ ENTER ESC</span></div>
+    <div id="cmd-res" class="cmd-res"></div>
+    <div id="cmd-rodape" class="cmd-rodape"></div>
   </div>
 </div>
 
