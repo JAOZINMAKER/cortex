@@ -1,0 +1,7 @@
+{
+  "nome": "cortex-registrar",
+  "titulo": "Registrar no diário",
+  "descricao": "Ao terminar uma tarefa relevante, registra no diário do córtex com ligações para commits, notas e arquivos.",
+  "executavel": false,
+  "parametros": []
+}

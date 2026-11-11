@@ -1,0 +1,7 @@
+{
+  "nome": "cortex",
+  "titulo": "CÓRTEX (base)",
+  "descricao": "Comandos, regras e API do CÓRTEX. É a skill que qualquer sessão usa quando o usuário fala em córtex.",
+  "executavel": false,
+  "parametros": []
+}

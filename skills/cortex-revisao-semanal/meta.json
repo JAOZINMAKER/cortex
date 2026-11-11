@@ -1,0 +1,22 @@
+{
+  "nome": "cortex-revisao-semanal",
+  "titulo": "Revisão semanal",
+  "descricao": "Revisão da semana de um projeto, por tema, com opção de gravar no diário.",
+  "executavel": true,
+  "parametros": [
+    {
+      "nome": "projeto",
+      "tipo": "projeto"
+    },
+    {
+      "nome": "dias",
+      "tipo": "numero",
+      "padrao": 7
+    },
+    {
+      "nome": "gravar",
+      "tipo": "booleano",
+      "padrao": false
+    }
+  ]
+}

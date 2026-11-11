@@ -2,16 +2,30 @@
 name: cortex
 description: Usa o CÓRTEX, o segundo cérebro local do usuário (notas do Obsidian, git, sessões do Claude Code e pastas num cérebro 3D). Use quando o usuário disser "córtex", "cortex", "segundo cérebro", "usa o córtex", "mostra no córtex", "registra no córtex", ou pedir contexto do que já foi feito num projeto ("o que eu fiz em glass-pets essa semana").
 ---
+<!-- cortex-skill v:1 -->
 
 # CÓRTEX
 
 O CÓRTEX é um app local do usuário, instalado em `{{CORTEX_DIR}}`. Ele lê as notas do Obsidian, os repositórios git, as sessões do Claude Code e as pastas do usuário e mostra tudo como um cérebro 3D no navegador. Você conversa com ele pelo comando `cortex`, que liga o servidor sozinho se precisar.
 
-**Como chamar:** use `cortex <comando>`. Se der "command not found", **não investigue**: passe direto e para o resto da tarefa ao fallback abaixo. No Windows, o PATH novo só vale em terminais (e no app do Claude) abertos depois da instalação.
+**Como chamar:** use `cortex <comando>`. Se der "command not found", **não investigue**: passe direto e para o resto da tarefa ao caminho completo abaixo. No Windows, o PATH novo só vale em terminais (e no app do Claude) abertos depois da instalação.
 ```bash
-node "{{CORTEX_DIR}}/cli.js" <comando>
+"{{CORTEX_BIN}}/cortex" <comando>        # Git Bash, Linux, mac
+& "{{CORTEX_BIN}}/cortex.cmd" <comando>  # PowerShell no Windows
 ```
-Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
+Todo comando aceita `--json`, que é melhor quando você vai processar a saída. O CÓRTEX pode estar instalado como app de desktop (`CORTEX.exe`, que fica na bandeja do sistema). O CLI liga o app escondido sozinho quando ele não está aberto.
+
+## Skills específicas (use a que bater com o pedido)
+
+| Pedido do usuário | Skill | Atalho no CLI |
+|---|---|---|
+| "vou trabalhar no X", "me dá o contexto do X" | `cortex-contexto` | `cortex executar cortex-contexto --projeto X` |
+| "onde parei no X?", "o que eu tava fazendo?" | `cortex-onde-parei` | `cortex executar cortex-onde-parei --projeto X` |
+| "faz a revisão da semana do X (e grava)" | `cortex-revisao-semanal` | `cortex executar cortex-revisao-semanal --projeto X --gravar` |
+| "acha notas soltas", "o que devia estar ligado?" | `cortex-ligacoes` | `cortex executar cortex-ligacoes --projeto X` |
+| "registra isso no córtex", fim de tarefa relevante | `cortex-registrar` | `cortex registrar ...` |
+
+Esta skill (`cortex`) é a base: comandos, regras e o que fazer nos outros pedidos. Para ver as skills e se estão instaladas: `cortex skills`.
 
 ## Passo a passo
 
@@ -20,7 +34,7 @@ Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
    - Todo comando que lê dados (resumo, listar, buscar, no, projetos, mostrar) também espera sozinho até o grafo ficar pronto.
    - Se o comando der erro de tempo, **rode o mesmo comando de novo**.
    - A "versão do grafo" (`grafo v73`) sobe a cada mudança detectada nas fontes. Ela não importa: não comente nem compare.
-   - Se falhar de verdade, diga ao usuário o erro exato e onde está o log (`{{CORTEX_DIR}}/data/servidor.log`). **Não invente dados do córtex.**
+   - Se falhar de verdade, diga ao usuário o erro exato (o CLI mostra onde está o log). **Não invente dados do córtex.**
 2. **Descubra o projeto**, nesta ordem:
    1. o nome que o usuário disse ("projeto cortex" → `cortex`);
    2. a pasta atual: o nome da pasta do repositório. As pastas `gp-*` (gp-alce, gp-vfx...) são worktrees do **glass-pets**, então o projeto é `glass-pets`;
@@ -60,7 +74,7 @@ Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
    ```
    - `--ligar` recebe idCurto ou títulos tirados de `buscar`, `listar` ou `no`.
    - Para texto longo use heredoc (acima) ou `--arquivo nota.md`. No PowerShell, sem heredoc, use `--arquivo`.
-   - Vira uma nota em `{{CORTEX_DIR}}/diario/<projeto>/` e aparece no cérebro em segundos como fonte **DIÁRIO**.
+   - Vira uma nota no diário do córtex (pasta de dados do app, nunca no cofre) e aparece no cérebro em segundos como fonte **DIÁRIO**.
    - **Não registre trivialidades.** Se o usuário pedir para registrar, sempre registre.
 7. **Conecte uma fonte nova** quando o usuário pedir:
    `cortex conectar <obsidian|git|claude|pasta> "<caminho>" --projeto <nome>`.
@@ -77,7 +91,7 @@ Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
 ## Regras
 
 - O córtex **só lê** os cofres, repositórios e pastas do usuário. Nunca edite esses arquivos "pelo córtex". Para guardar algo, use `cortex registrar`.
-- Nunca edite à mão nada em `{{CORTEX_DIR}}/data/` nem o `cortex.config.json`. Use os comandos.
+- Nunca edite à mão a pasta de dados do córtex (config, `data/`, `diario/`). Use os comandos.
 - Servidor fora do ar e sem ligar: diga isso. Não responda de memória como se tivesse consultado.
 
 ## Exemplo completo
@@ -107,9 +121,10 @@ Depois responda com um resumo curto do que foi feito, por tema e com os idCurto 
 | `cortex mostrar <projeto\|visão\|tudo> [filtros] [--abrir]` | muda a visão nas janelas abertas |
 | `cortex registrar --projeto X --titulo T --texto Y [--tags] [--ligar] [--autor]` | grava no diário |
 | `cortex conectar <tipo> "<caminho>" [--projeto X]` · `cortex fontes` · `cortex reconstruir` | fontes |
-| `cortex skill instalar` | reinstala esta skill e o comando |
+| `cortex skills` · `cortex skill instalar [nome\|todas]` · `cortex skill remover <nome>` | skills do Claude Code |
+| `cortex executar <skill> --projeto X [--gravar]` | roda uma skill executável no servidor, sem IA (contexto, onde-parei, revisão, ligações) |
 
-**Porta e config:** o CLI respeita as variáveis `PORT` e `CORTEX_CONFIG`; sem elas, usa `{{CORTEX_DIR}}/cortex.config.json` (campo `porta`, padrão 4747). Para usar a API HTTP com curl, pegue a URL com `cortex status --json` (campo `url`):
+**Porta e config:** o CLI respeita as variáveis `PORT` e `CORTEX_CONFIG`; sem elas, usa a config do app (porta padrão 4747). Para usar a API HTTP com curl, pegue a URL com `cortex status --json` (campo `url`):
 ```bash
 URL=$(cortex status --json | sed -E 's/.*"url":"([^"]+)".*/\1/')
 curl -s "$URL/api/projetos"

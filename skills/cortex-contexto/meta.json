@@ -1,0 +1,17 @@
+{
+  "nome": "cortex-contexto",
+  "titulo": "Contexto do projeto",
+  "descricao": "Antes de trabalhar num projeto: resumo recente, últimas sessões, diário e notas centrais.",
+  "executavel": true,
+  "parametros": [
+    {
+      "nome": "projeto",
+      "tipo": "projeto"
+    },
+    {
+      "nome": "dias",
+      "tipo": "numero",
+      "padrao": 14
+    }
+  ]
+}

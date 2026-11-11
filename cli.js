@@ -9,9 +9,30 @@ const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
 
+const os = require('os');
 const ROOT = __dirname;
-const CONFIG_PATH = process.env.CORTEX_CONFIG ? path.resolve(process.env.CORTEX_CONFIG) : path.join(ROOT, 'cortex.config.json');
-const DATA_DIR = process.env.CORTEX_DATA ? path.resolve(process.env.CORTEX_DATA) : path.join(ROOT, 'data');
+const HOME = os.homedir();
+
+// app de desktop instalado? (gravado pelo instalar.js --exe em ~/.cortex/app.json)
+function lerApp() {
+  try { return JSON.parse(fs.readFileSync(path.join(HOME, '.cortex', 'app.json'), 'utf8')); } catch { return null; }
+}
+const APP = lerApp();
+
+// Onde está a config: CORTEX_CONFIG > dados do app (%APPDATA%\CORTEX no Windows, ~/.config/CORTEX no Linux,
+// ~/Library/Application Support/CORTEX no mac) > ao lado do CLI (instalação antiga / desenvolvimento)
+function pastaDadosApp() {
+  if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming'), 'CORTEX');
+  if (process.platform === 'darwin') return path.join(HOME, 'Library', 'Application Support', 'CORTEX');
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, '.config'), 'CORTEX');
+}
+function acharConfig() {
+  if (process.env.CORTEX_CONFIG) return path.resolve(process.env.CORTEX_CONFIG);
+  const cands = [APP && APP.configPath, path.join(pastaDadosApp(), 'cortex.config.json'), path.join(ROOT, 'cortex.config.json')].filter(Boolean);
+  return cands.find((c) => fs.existsSync(c)) || cands[cands.length - 1];
+}
+const CONFIG_PATH = acharConfig();
+const DATA_DIR = process.env.CORTEX_DATA ? path.resolve(process.env.CORTEX_DATA) : path.join(path.dirname(CONFIG_PATH), 'data');
 
 function lerConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch { return {}; }
@@ -106,13 +127,26 @@ async function vivo() {
   catch { return null; }
 }
 
+// Liga o CÓRTEX: o app de desktop escondido na bandeja, se instalado; senão o servidor com node.
+// (Testes com PORT/CORTEX_CONFIG sempre usam o servidor direto, para não abrir o app do usuário.)
 function ligarServidor() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const log = fs.openSync(path.join(DATA_DIR, 'servidor.log'), 'a');
+  const teste = process.env.PORT || process.env.CORTEX_CONFIG;
+  if (!teste && APP && APP.exe && fs.existsSync(APP.exe)) {
+    const env = { ...process.env };
+    delete env.ELECTRON_RUN_AS_NODE; // o cortex.cmd liga isso para rodar o CLI; o app precisa subir como app
+    const p = spawn(APP.exe, ['--escondido'], { detached: true, windowsHide: true, stdio: ['ignore', log, log], env });
+    p.on('error', () => {});
+    p.unref();
+    return 'app';
+  }
+  // em modo ELECTRON_RUN_AS_NODE o próprio exe funciona como node
   const p = spawn(process.execPath, [path.join(ROOT, 'server', 'index.js')], {
     cwd: ROOT, detached: true, windowsHide: true, stdio: ['ignore', log, log], env: process.env,
   });
   p.unref();
+  return 'node';
 }
 
 // garante servidor de pé; com `pronto`, espera também o grafo terminar de montar (máx. 60 s),
@@ -121,8 +155,8 @@ const ESPERA_PRONTO = 60000;
 async function garantir({ pronto = true, limite = 30000 } = {}) {
   let st = await vivo();
   if (!st) {
-    process.stderr.write(`[córtex] servidor fora do ar em ${BASE}; ligando em segundo plano…\n`);
-    ligarServidor();
+    const como = ligarServidor();
+    process.stderr.write(`[córtex] servidor fora do ar em ${BASE}; ${como === 'app' ? 'abrindo o app CÓRTEX escondido na bandeja' : 'ligando em segundo plano'}…\n`);
   }
   const t0 = Date.now();
   const fimSubir = t0 + limite;
@@ -448,11 +482,67 @@ C.reconstruir = async () => {
   out('reconstrução pedida. O cérebro redesenha quando terminar.');
 };
 
+// ----- skills do Claude Code (funcionam sem o servidor) -----
+C.skills = async () => {
+  const inst = require('./instalar.js');
+  let lista_ = null;
+  const st = await vivo();
+  if (st) { try { const r = await req('GET', '/api/skills'); if (r.status === 200) lista_ = Array.isArray(r.json) ? r.json : (r.json && r.json.skills); } catch { /* local */ } }
+  if (!lista_) lista_ = inst.statusSkills();
+  if (MODO_JSON) return out(JSON.stringify(lista_));
+  out('SKILL                       NO CLAUDE CODE     EXECUTÁVEL  O QUE FAZ');
+  for (const s of lista_) {
+    const estado = !s.instalada ? 'não instalada' : (s.desatualizada || (s.versaoInstalada != null && s.versaoApp != null && s.versaoInstalada !== s.versaoApp)) ? 'DESATUALIZADA' : 'instalada';
+    out(`${String(s.nome).padEnd(27)} ${estado.padEnd(18)} ${(s.executavel ? 'sim' : '—').padEnd(11)} ${corta(s.titulo || s.descricao || '', 60)}`);
+  }
+  out('\ninstalar/atualizar: cortex skill instalar [nome|todas] · remover: cortex skill remover <nome> · rodar: cortex executar <skill> --projeto X');
+};
+
 C.skill = async (pos, op) => {
-  if (pos[0] !== 'instalar') falhar('uso: cortex skill instalar');
-  const { instalar } = require('./instalar.js');
-  const res = instalar({ silencioso: false });
-  if (MODO_JSON) out(JSON.stringify(res));
+  const inst = require('./instalar.js');
+  const acao = pos[0], nome = pos[1];
+  if (acao === 'instalar') {
+    if (!nome || nome === 'todas') {
+      const res = inst.instalar({ silencioso: false });
+      if (MODO_JSON) out(JSON.stringify(res));
+      return;
+    }
+    let feito;
+    try { feito = inst.instalarSkills(nome); } catch (e) { falhar(e.message); }
+    if (MODO_JSON) return out(JSON.stringify({ ok: true, feito }));
+    out(feito.length ? feito.map((f) => 'instalada: ' + f).join('\n') : `skill ${nome} já estava em dia.`);
+    return;
+  }
+  if (acao === 'remover') {
+    if (!nome) falhar('uso: cortex skill remover <nome>');
+    let ok;
+    try { ok = inst.removerSkill(nome); } catch (e) { falhar(e.message); }
+    if (MODO_JSON) return out(JSON.stringify({ ok: !!ok }));
+    out(ok ? `skill ${nome} removida do Claude Code.` : `skill ${nome} não estava instalada.`);
+    return;
+  }
+  falhar('uso: cortex skill instalar [nome|todas] · cortex skill remover <nome> · cortex skills');
+};
+
+// roda uma skill executável no servidor (determinística, sem IA)
+C.executar = async (pos, op) => {
+  const nome = pos[0];
+  if (!nome) falhar('uso: cortex executar <skill> --projeto X [--gravar] [--dias N]   (veja "cortex skills")');
+  await garantir();
+  const corpo = {};
+  const proj = op.projeto && op.projeto !== true ? String(op.projeto) : pos[1];
+  if (proj) corpo.projeto = proj;
+  if (op.gravar) corpo.gravar = true;
+  if (op.dias !== undefined && op.dias !== true) corpo.dias = Number(op.dias);
+  for (const [k, v] of Object.entries(op)) if (!['projeto', 'gravar', 'dias', 'json'].includes(k)) corpo[k] = v;
+  const r = await api('POST', '/api/skills/' + encodeURIComponent(nome) + '/executar', corpo);
+  const j = r.json || {};
+  if (MODO_JSON) return out(JSON.stringify(j));
+  out(j.markdown || r.texto || JSON.stringify(j, null, 2));
+  if (j.registradoEm) {
+    const reg = typeof j.registradoEm === 'object' ? j.registradoEm : { id: j.registradoEm };
+    out(`\ngravado no diário: ${curto(reg) || reg.id || ''}${reg.caminho ? ' · ' + reg.caminho : ''}`);
+  }
 };
 
 // verifica sem ligar nada: código de saída 0 = rodando, 1 = fora do ar (usado pelo abrir-cortex.bat)
@@ -483,7 +573,12 @@ const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
   cortex conectar <obsidian|git|claude|pasta> "<caminho>" [--projeto X]
   cortex fontes                       fontes conectadas e status
   cortex reconstruir
-  cortex skill instalar               instala/atualiza a skill do Claude Code e o comando
+  cortex skills                       skills do Claude Code e se estão instaladas
+  cortex skill instalar [nome|todas]  instala/atualiza skills (todas = também comando, PATH e CLAUDE.md)
+  cortex skill remover <nome>
+  cortex executar <skill> --projeto X [--gravar] [--dias N]
+                                      roda no servidor, sem IA: cortex-contexto, cortex-onde-parei,
+                                      cortex-revisao-semanal, cortex-ligacoes
 
   --json em qualquer comando devolve JSON para máquinas.`;
 
@@ -491,7 +586,7 @@ const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
   const { pos, op } = parse(process.argv.slice(2));
   MODO_JSON = !!op.json;
   const cmd = (pos.shift() || 'ajuda').toLowerCase();
-  const alias = { list: 'listar', ls: 'listar', help: 'ajuda', '-h': 'ajuda', '--help': 'ajuda', open: 'abrir', search: 'buscar', node: 'no', 'nó': 'no', show: 'mostrar', log: 'registrar', connect: 'conectar', rebuild: 'reconstruir', projects: 'projetos', summary: 'resumo' };
+  const alias = { run: 'executar', rodar: 'executar', list: 'listar', ls: 'listar', help: 'ajuda', '-h': 'ajuda', '--help': 'ajuda', open: 'abrir', search: 'buscar', node: 'no', 'nó': 'no', show: 'mostrar', log: 'registrar', connect: 'conectar', rebuild: 'reconstruir', projects: 'projetos', summary: 'resumo' };
   const nome = alias[cmd] || cmd;
   if (nome === 'ajuda') return out(AJUDA);
   if (!C[nome]) falhar(`comando desconhecido: ${cmd}\n\n${AJUDA}`);

@@ -1,0 +1,12 @@
+{
+  "nome": "cortex-onde-parei",
+  "titulo": "Onde parei",
+  "descricao": "Última sessão do projeto, arquivos tocados, último commit e pendências do diário.",
+  "executavel": true,
+  "parametros": [
+    {
+      "nome": "projeto",
+      "tipo": "projeto"
+    }
+  ]
+}

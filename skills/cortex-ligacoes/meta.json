@@ -1,0 +1,18 @@
+{
+  "nome": "cortex-ligacoes",
+  "titulo": "Ligações sugeridas",
+  "descricao": "Acha notas órfãs e notas que se citam sem link e sugere ligações; nunca edita o cofre.",
+  "executavel": true,
+  "parametros": [
+    {
+      "nome": "projeto",
+      "tipo": "projeto",
+      "opcional": true
+    },
+    {
+      "nome": "gravar",
+      "tipo": "booleano",
+      "padrao": false
+    }
+  ]
+}
