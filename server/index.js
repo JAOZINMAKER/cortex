@@ -478,7 +478,10 @@ function listar(sp) {
   const fontes = sp.get('fontes') ? new Set(sp.get('fontes').split(',').map((x) => x.trim()).filter(Boolean)) : null;
   const limite = Math.max(1, Math.min(5000, parseInt(sp.get('limite'), 10) || 200));
   const ordem = sp.get('ordem') || 'recente';
+  // filtro por máquina (nome, sem diferenciar maiúsculas): vale se o nó veio de qualquer uma delas
+  const maqs = sp.get('maquinas') ? new Set(sp.get('maquinas').split(',').map((x) => x.trim().toUpperCase()).filter(Boolean)) : null;
   const lista = G.interno.nos.filter((n) => {
+    if (maqs && !(n.maquinas && n.maquinas.length ? n.maquinas : [n.maquina]).some((m) => m && maqs.has(String(m).toUpperCase()))) return false;
     if (proj && n.projeto !== proj) return false;
     if (!tipos && n.tipo === 'dia') return false;
     if (tipos && !tipos.has(n.tipo)) return false;

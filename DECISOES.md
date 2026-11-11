@@ -95,3 +95,6 @@ Três testes cegos com agentes novos, que só tinham a skill, guiaram as correç
 
 ## D-016 · O diário nunca escreve nos seus cofres
 O que as sessões registram vai para `%APPDATA%\CORTEX\diario`. Ele aparece como fonte DIÁRIO e nunca sobrescreve uma entrada: títulos repetidos ganham sufixo.
+
+## D-017 · Sincronização por pasta, sem servidor na nuvem
+Para juntar 3 PCs sem criar conta nem servidor, o CÓRTEX usa uma pasta que um serviço que o usuário já tem (OneDrive, Google Drive, Dropbox) sincroniza. Cada PC escreve só na própria subpasta, então nunca há conflito. O pacote é dividido por fonte, com hash no manifesto: só se reenvia e só se baixa o que mudou. Os ids dos neurônios usam a chave natural sem caminho absoluto, então o mesmo commit, nota ou sessão é um neurônio só e tem o mesmo `idCurto` em qualquer PC. Ligar a sincronização é sempre escolha do usuário, porque os dados vão para a nuvem dele.

@@ -29,6 +29,23 @@ Não precisa de Node.js, porque o `CORTEX.exe` roda tudo. Precisa do **Git** ins
 
 As pastas `gp-*` (worktrees e clones) caem todas no projeto **glass-pets**. A regra vem do apelido `gp-* → glass-pets` e do próprio git. Os apelidos ficam editáveis em Configurações → Fontes.
 
+## Vários PCs
+
+Cada CÓRTEX só enxerga o que existe no próprio computador. Para juntar os cérebros de vários PCs:
+
+1. Instale o CÓRTEX em cada PC.
+2. Em cada um, vá em **Configurações → Sincronização** (ou clique em **SINCRONIZAR** na tela de boas-vindas), ligue e escolha **a mesma pasta** que já sincroniza entre eles. Um exemplo é uma pasta no OneDrive, que já vem no Windows: `OneDrive\CORTEX`.
+3. Dê um nome a cada PC (ex.: CASA, ESCRITÓRIO, NOTEBOOK).
+
+Em poucos minutos todos mostram tudo:
+- Um commit ou uma sessão que existe em dois PCs vira um neurônio só.
+- Neurônios de outro PC mostram **DE: NOME-DO-PC**.
+- O diário de cada PC aparece nos outros.
+
+Cada PC só escreve na própria subpasta e só reenvia o que mudou (uma sessão ativa troca cerca de 14 KB). Sem pasta em comum, dá para **exportar** um `.cortexpack` e **importar** no outro PC, por pendrive ou e-mail.
+
+No terminal: `cortex sync`, `cortex sync pasta "C:\Users\voce\OneDrive\CORTEX" --ligar`, `cortex sync nome CASA` e `cortex sync agora`.
+
 ## Usar com outras sessões do Claude Code
 
 Basta dizer **"usa o córtex"**, ou pedir naturalmente:
