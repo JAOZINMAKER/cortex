@@ -577,3 +577,23 @@ body.com-faixa .sec { top: calc(var(--tb) + 28px); }
 .tbl.at4 { grid-template-columns: 110px 1fr 110px 120px; }
 .od-btn code { display: inline-block; margin-top: 2px; word-break: break-all; }
 .at-top.at-solo { grid-template-columns: 260px; }
+/* =================================================================== V6: sincronização pela conta do GitHub */
+.gh { display: grid; grid-template-columns: 64px 1fr; border: 2px solid var(--texto); margin: 18px 0 10px; background: var(--fundo); align-items: stretch; }
+.gh-logo { width: 64px; height: 100%; padding: 16px; box-sizing: border-box; background: var(--texto); color: var(--fundo); }
+.gh-t { padding: 14px 18px; display: flex; flex-direction: column; gap: 8px; justify-content: center; min-width: 0; }
+.gh-t > b { font-size: 26px; line-height: 26px; font-weight: 800; font-stretch: 75%; } .gh-t > span { font-size: 12px; line-height: 18px; font-stretch: 100%; } .gh-t em { font-style: normal; font-size: 9px; letter-spacing: .1em; color: var(--cinza); }
+.gh-t code { background: var(--painel); padding: 0 4px; color: var(--texto); } .gh-t a { color: var(--texto); }
+.gh-linha { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.gh-linha > span { font-size: 9px; letter-spacing: .14em; color: var(--cinza); } .gh-linha > b { font-size: 28px; line-height: 30px; font-weight: 800; font-stretch: 75%; } .gh-linha > i { font-style: normal; color: var(--apagado); font-size: 22px; }
+.gh-linha .gh-repo { text-transform: none; color: var(--maquina); } .gh-linha .gh-n { color: var(--acento); } .gh-linha .gh-n i { font-style: normal; text-transform: none; }
+.gh-sub { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 9px; letter-spacing: .1em; color: var(--cinza); border-top: 1px solid var(--grade); padding-top: 8px; } .gh-sub b { color: var(--texto); font-weight: 400; }
+.gh-ok { border-color: var(--maquina); } .gh-ok .gh-logo { background: var(--maquina); }
+.gh-entrar { grid-template-columns: 64px minmax(300px, 440px) 1fr; border-color: var(--acento); }
+.gh-entrar .gh-logo { background: var(--acento); }
+.gh-btn { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px; padding: 20px 22px; background: var(--acento); color: var(--fundo); border: 0; border-left: 1px solid var(--fundo); text-align: left; cursor: pointer; text-transform: none; }
+.gh-btn:hover { filter: brightness(1.08); } .gh-btn:disabled { filter: grayscale(.6); cursor: default; }
+.gh-btn b { font-size: 40px; line-height: 38px; font-weight: 800; font-stretch: 75%; letter-spacing: .01em; text-transform: uppercase; } .gh-btn span { font-size: 12px; font-stretch: 100%; letter-spacing: .02em; }
+.gh-msg { font-size: 10px; letter-spacing: .08em; color: var(--maquina); min-height: 14px; }
+.gh-sem, .gh-erro { border-color: var(--alerta); } .gh-sem .gh-logo, .gh-erro .gh-logo { background: var(--alerta); } .gh-sem .gh-t > b, .gh-erro .gh-t > b { color: var(--alerta); }
+.boas-vindas .gh { margin: 0 0 14px; }
+.tb-sync.entrar { background: var(--acento); color: var(--fundo); font-weight: 800; } .tb-sync.entrar b { color: var(--fundo); } .tb-sync.entrar:hover { background: var(--acento); filter: brightness(1.1); color: var(--fundo); }
