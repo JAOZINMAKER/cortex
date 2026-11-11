@@ -15,3 +15,9 @@ CORTEX - segundo cerebro local
 - Fechar a janela deixa o CORTEX na bandeja (perto do relogio).
   Para sair de verdade: clique direito no icone da bandeja > Sair.
 - Atalho global para mostrar/esconder: Ctrl+Alt+C (muda em Configuracoes).
+
+VARIOS PCs
+- Instale em cada PC. Em cada um: Configuracoes > Sincronizacao > ligar
+  e escolher A MESMA pasta que ja sincroniza entre eles
+  (ex.: OneDrive\CORTEX). De um nome para cada PC.
+- Em poucos minutos todos mostram o cerebro inteiro.
