@@ -19,20 +19,25 @@ function lerApp() {
 }
 const APP = lerApp();
 
-// Onde está a config: CORTEX_CONFIG > dados do app (%APPDATA%\CORTEX no Windows, ~/.config/CORTEX no Linux,
-// ~/Library/Application Support/CORTEX no mac) > ao lado do CLI (instalação antiga / desenvolvimento)
+// Mesma regra do servidor V4: pasta de dados = CORTEX_DADOS > CORTEX_DATA > dados do app (%APPDATA%\CORTEX no
+// Windows, ~/.config/CORTEX no Linux, ~/Library/Application Support/CORTEX no mac, se existir) > ao lado do CLI.
+// config = CORTEX_CONFIG > <dados>/cortex.config.json
 function pastaDadosApp() {
   if (process.platform === 'win32') return path.join(process.env.APPDATA || path.join(HOME, 'AppData', 'Roaming'), 'CORTEX');
   if (process.platform === 'darwin') return path.join(HOME, 'Library', 'Application Support', 'CORTEX');
   return path.join(process.env.XDG_CONFIG_HOME || path.join(HOME, '.config'), 'CORTEX');
 }
-function acharConfig() {
-  if (process.env.CORTEX_CONFIG) return path.resolve(process.env.CORTEX_CONFIG);
-  const cands = [APP && APP.configPath, path.join(pastaDadosApp(), 'cortex.config.json'), path.join(ROOT, 'cortex.config.json')].filter(Boolean);
-  return cands.find((c) => fs.existsSync(c)) || cands[cands.length - 1];
+function acharDados() {
+  const env = process.env.CORTEX_DADOS || process.env.CORTEX_DATA;
+  if (env) return path.resolve(env);
+  if (APP && APP.dadosDir && fs.existsSync(APP.dadosDir)) return APP.dadosDir;
+  const doApp = pastaDadosApp();
+  if (fs.existsSync(path.join(doApp, 'cortex.config.json'))) return doApp;
+  return ROOT;
 }
-const CONFIG_PATH = acharConfig();
-const DATA_DIR = process.env.CORTEX_DATA ? path.resolve(process.env.CORTEX_DATA) : path.join(path.dirname(CONFIG_PATH), 'data');
+const DADOS_DIR = acharDados();
+const CONFIG_PATH = process.env.CORTEX_CONFIG ? path.resolve(process.env.CORTEX_CONFIG) : path.join(DADOS_DIR, 'cortex.config.json');
+const DATA_DIR = path.join(DADOS_DIR, 'data');
 
 function lerConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')); } catch { return {}; }
@@ -132,7 +137,7 @@ async function vivo() {
 function ligarServidor() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const log = fs.openSync(path.join(DATA_DIR, 'servidor.log'), 'a');
-  const teste = process.env.PORT || process.env.CORTEX_CONFIG;
+  const teste = process.env.PORT || process.env.CORTEX_CONFIG || process.env.CORTEX_DADOS || process.env.CORTEX_DATA;
   if (!teste && APP && APP.exe && fs.existsSync(APP.exe)) {
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE; // o cortex.cmd liga isso para rodar o CLI; o app precisa subir como app
@@ -187,7 +192,11 @@ async function api(metodo, rota, corpo) {
   if (r.status === 404 && r.json && r.json.erro === 'rota desconhecida') {
     falhar(`o servidor não conhece ${rota.split('?')[0]}. Atualize o CÓRTEX (versão do servidor antiga).`);
   }
-  if (r.status >= 400) falhar((r.json && (r.json.erro || r.json.mensagem)) || `erro HTTP ${r.status} em ${rota}`);
+  if (r.status >= 400) {
+    const j = r.json || {};
+    const ps = Array.isArray(j.projetos) && j.projetos.length ? `. Projetos: ${j.projetos.map((p) => (typeof p === 'string' ? p : p.nome)).join(', ')}` : '';
+    falhar((j.erro || j.mensagem || `erro HTTP ${r.status} em ${rota}`) + ps);
+  }
   return r;
 }
 
@@ -485,14 +494,12 @@ C.reconstruir = async () => {
 // ----- skills do Claude Code (funcionam sem o servidor) -----
 C.skills = async () => {
   const inst = require('./instalar.js');
-  let lista_ = null;
-  const st = await vivo();
-  if (st) { try { const r = await req('GET', '/api/skills'); if (r.status === 200) lista_ = Array.isArray(r.json) ? r.json : (r.json && r.json.skills); } catch { /* local */ } }
-  if (!lista_) lista_ = inst.statusSkills();
+  // sempre local: o que importa é o ~/.claude desta máquina (mesma lógica do /api/skills)
+  const lista_ = inst.statusSkills();
   if (MODO_JSON) return out(JSON.stringify(lista_));
   out('SKILL                       NO CLAUDE CODE     EXECUTÁVEL  O QUE FAZ');
   for (const s of lista_) {
-    const estado = !s.instalada ? 'não instalada' : (s.desatualizada || (s.versaoInstalada != null && s.versaoApp != null && s.versaoInstalada !== s.versaoApp)) ? 'DESATUALIZADA' : 'instalada';
+    const estado = { instalada: 'instalada', desatualizada: 'DESATUALIZADA', 'nao-instalada': 'não instalada' }[s.status] || (s.instalada ? 'instalada' : 'não instalada');
     out(`${String(s.nome).padEnd(27)} ${estado.padEnd(18)} ${(s.executavel ? 'sim' : '—').padEnd(11)} ${corta(s.titulo || s.descricao || '', 60)}`);
   }
   out('\ninstalar/atualizar: cortex skill instalar [nome|todas] · remover: cortex skill remover <nome> · rodar: cortex executar <skill> --projeto X');

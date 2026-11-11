@@ -10,8 +10,10 @@ O CÓRTEX é um app local do usuário, instalado em `{{CORTEX_DIR}}`. Ele lê as
 
 **Como chamar:** use `cortex <comando>`. Se der "command not found", **não investigue**: passe direto e para o resto da tarefa ao caminho completo abaixo. No Windows, o PATH novo só vale em terminais (e no app do Claude) abertos depois da instalação.
 ```bash
-"{{CORTEX_BIN}}/cortex" <comando>        # Git Bash, Linux, mac
-& "{{CORTEX_BIN}}/cortex.cmd" <comando>  # PowerShell no Windows
+"$HOME/.cortex/bin/cortex" <comando>                # Git Bash no Windows
+& "$env:USERPROFILE\.cortex\bin\cortex.cmd" <comando>  # PowerShell no Windows
+"$HOME/.local/bin/cortex" <comando>                 # Linux e mac
+node "{{CORTEX_DIR}}/cli.js" <comando>              # último recurso, se o Node estiver instalado
 ```
 Todo comando aceita `--json`, que é melhor quando você vai processar a saída. O CÓRTEX pode estar instalado como app de desktop (`CORTEX.exe`, que fica na bandeja do sistema). O CLI liga o app escondido sozinho quando ele não está aberto.
 

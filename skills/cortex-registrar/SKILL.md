@@ -8,7 +8,7 @@ description: Registra no diário do CÓRTEX o trabalho feito numa sessão. Use q
 
 O diário é onde as sessões do Claude deixam o que fizeram. Cada registro vira um neurônio (fonte **DIÁRIO**) ligado aos commits, notas e arquivos citados. O registro **nunca** edita o cofre do usuário.
 
-**Como chamar:** `cortex <comando>`. Se der "command not found", use direto e até o fim da tarefa `"{{CORTEX_BIN}}/cortex" <comando>` (Git Bash, Linux, mac) ou `& "{{CORTEX_BIN}}/cortex.cmd" <comando>` (PowerShell). O CLI liga o CÓRTEX sozinho e espera o cérebro montar (até 60 s, avisando "montando o cérebro…"). Se der erro de tempo, rode de novo. Regras gerais, filtros e API estão na skill base `cortex`.
+**Como chamar:** `cortex <comando>`. Se der "command not found", use direto e até o fim da tarefa o caminho completo: `"$HOME/.cortex/bin/cortex" <comando>` (Git Bash no Windows), `& "$env:USERPROFILE\.cortex\bin\cortex.cmd" <comando>` (PowerShell) ou `"$HOME/.local/bin/cortex" <comando>` (Linux e mac). O CLI liga o CÓRTEX sozinho e espera o cérebro montar (até 60 s, avisando "montando o cérebro…"). Se der erro de tempo, rode de novo. Regras gerais, filtros e API estão na skill base `cortex`.
 
 **Projeto:** use 1) o nome que o usuário disse; 2) senão a pasta atual (pastas `gp-*` são worktrees do `glass-pets`); 3) confirme o nome exato com `cortex projetos`.
 

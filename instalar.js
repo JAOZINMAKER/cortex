@@ -3,6 +3,7 @@
 // CÓRTEX — instalador idempotente. Roda a cada abertura (abrir-cortex.bat / app) e em "cortex skill instalar".
 //  1. comando `cortex` (Windows: %USERPROFILE%\.cortex\bin\cortex.cmd + script sh para Git Bash; Linux/mac: ~/.local/bin/cortex)
 //     com --exe "<CORTEX.exe>" o comando roda o CLI pelo próprio app (ELECTRON_RUN_AS_NODE=1), sem precisar de Node instalado
+//     (--dados "<pasta>" grava também a pasta de dados do app em app.json, para o CLI achar a config/porta)
 //  2. essa pasta no PATH do usuário (Windows: HKCU\Environment via reg, preservando o valor existente)
 //  3. TODAS as skills de skills/ em ~/.claude/skills/<nome>/SKILL.md (com caminhos reais)
 //  4. bloco curto entre marcadores em ~/.claude/CLAUDE.md
@@ -18,17 +19,14 @@ const ROOT = __dirname;
 const WIN = process.platform === 'win32';
 const MARCA_INI = '<!-- CORTEX:INICIO -->';
 const MARCA_FIM = '<!-- CORTEX:FIM -->';
-const SKILLS_DIR = path.join(ROOT, 'skills');
 
 // Caminho com barras "/" funciona no Node, no Git Bash, no PowerShell e no cmd (entre aspas).
 const barra = (p) => p.replace(/\\/g, '/');
 // Git Bash: C:/x → /c/x (só para o script sh)
 const posixBash = (p) => barra(p).replace(/^([A-Za-z]):\//, (_, d) => '/' + d.toLowerCase() + '/');
 
-// Lógica de skills compartilhada com o servidor (POST /api/skills/:nome/instalar). Se o módulo do
-// servidor existir, ele é a fonte da verdade; senão usamos a implementação local abaixo (mesmo formato).
-let compartilhado = null;
-try { compartilhado = require('./server/skills-instalar.js'); } catch { /* servidor sem o módulo */ }
+// CORTEX_HOME troca a home (testes), como no servidor
+const homeDe = () => process.env.CORTEX_HOME || os.homedir();
 
 function escreverSeMudou(arquivo, conteudo, modo) {
   let atual = null;
@@ -78,13 +76,13 @@ function instalarComando(home, exe, feito) {
   return bin;
 }
 
-function gravarApp(home, exe, bin, feito) {
+function gravarApp(home, exe, bin, feito, dadosDir) {
   if (!exe) return;
   let versao = null;
   try { versao = require('./package.json').version; } catch { /* sem package.json */ }
   const atual = lerApp(home) || {};
-  const novo = { exe, appDir: ROOT, cli: path.join(ROOT, 'cli.js'), bin, versao };
-  const igual = ['exe', 'appDir', 'cli', 'bin', 'versao'].every((k) => atual[k] === novo[k]);
+  const novo = { exe, appDir: ROOT, cli: path.join(ROOT, 'cli.js'), bin, versao, dadosDir: dadosDir || atual.dadosDir || null };
+  const igual = ['exe', 'appDir', 'cli', 'bin', 'versao', 'dadosDir'].every((k) => atual[k] === novo[k]);
   if (igual) return;
   escreverSeMudou(arquivoApp(home), JSON.stringify({ ...novo, instaladoEm: new Date().toISOString() }, null, 2) + '\n');
   feito.push(`app registrado: ${arquivoApp(home)} → ${exe}`);
@@ -123,72 +121,25 @@ function garantirPath(bin, feito, avisos) {
 }
 
 // ----- skills -----
-const VERSAO_RE = /<!--\s*cortex-skill\s+v:(\d+)\s*-->/;
+// A lógica é a do servidor (server/skills-instalar.js), a mesma usada por /api/skills e pela tela SKILLS do app.
+const skillsMod = require('./server/skills-instalar.js');
 
-function skillsDoApp() {
-  try {
-    return fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && fs.existsSync(path.join(SKILLS_DIR, d.name, 'SKILL.md')))
-      .map((d) => d.name).sort();
-  } catch { return []; }
+function skillsDoApp() { return skillsMod.listar({ appDir: ROOT, home: homeDe() }).map((s) => s.nome); }
+
+// [{ nome, titulo, descricao, executavel, parametros, versaoApp, versaoInstalada, instalada, status, caminho, origem }]
+function statusSkills(home = homeDe()) { return skillsMod.listar({ appDir: ROOT, home }); }
+
+// devolve as linhas do que mudou (vazio = já estava em dia)
+function instalarSkills(alvo = 'todas', home = homeDe()) {
+  const { resultados } = skillsMod.instalar(alvo, { appDir: ROOT, home });
+  return resultados.filter((r) => r.mudou).map((r) => `skill ${r.nome}: ${path.join(r.caminho, 'SKILL.md')}`);
 }
 
-function variaveis(home) {
-  return { CORTEX_DIR: barra(ROOT), CORTEX_BIN: barra(pastaBin(home)) };
-}
-
-function textoSkill(nome, home) {
-  let txt = fs.readFileSync(path.join(SKILLS_DIR, nome, 'SKILL.md'), 'utf8');
-  for (const [k, v] of Object.entries(variaveis(home))) txt = txt.split(`{{${k}}}`).join(v);
-  return txt;
-}
-
-const destinoSkill = (home, nome) => path.join(home, '.claude', 'skills', nome, 'SKILL.md');
-
-function versaoDe(txt) { const m = txt && VERSAO_RE.exec(txt); return m ? Number(m[1]) : null; }
-
-function statusSkills(home = os.homedir()) {
-  if (compartilhado && compartilhado.status) {
-    try { return compartilhado.status({ home, appDir: ROOT }); } catch { /* cai na local */ }
-  }
-  return skillsDoApp().map((nome) => {
-    let meta = {};
-    try { meta = JSON.parse(fs.readFileSync(path.join(SKILLS_DIR, nome, 'meta.json'), 'utf8')); } catch { /* sem meta */ }
-    const app = textoSkill(nome, home);
-    let inst = null;
-    try { inst = fs.readFileSync(destinoSkill(home, nome), 'utf8'); } catch { /* não instalada */ }
-    const versaoApp = versaoDe(app), versaoInstalada = versaoDe(inst);
-    return {
-      ...meta, nome, instalada: inst !== null, desatualizada: inst !== null && inst !== app,
-      versaoInstalada, versaoApp, caminho: destinoSkill(home, nome),
-    };
-  });
-}
-
-function instalarSkills(alvo = 'todas', home = os.homedir()) {
-  const nomes = alvo === 'todas' ? skillsDoApp() : [alvo];
-  const feito = [];
-  for (const nome of nomes) {
-    if (!fs.existsSync(path.join(SKILLS_DIR, nome, 'SKILL.md'))) throw new Error(`skill desconhecida: ${nome}. Disponíveis: ${skillsDoApp().join(', ')}`);
-    if (compartilhado && compartilhado.instalar) {
-      const r = compartilhado.instalar(nome, { home, appDir: ROOT, vars: variaveis(home) });
-      if (r && (r.mudou || r.escrito || r.instalada === 'nova' || r.atualizada)) feito.push(`skill ${nome}: ${destinoSkill(home, nome)}`);
-      continue;
-    }
-    if (escreverSeMudou(destinoSkill(home, nome), textoSkill(nome, home))) feito.push(`skill ${nome}: ${destinoSkill(home, nome)}`);
-  }
-  return feito;
-}
-
-function removerSkill(nome, home = os.homedir()) {
-  if (compartilhado && compartilhado.remover) return compartilhado.remover(nome, { home, appDir: ROOT });
-  const pasta = path.dirname(destinoSkill(home, nome));
-  if (!fs.existsSync(pasta)) return false;
-  // só remove o que é do córtex: a SKILL.md tem o marcador de versão
-  const txt = fs.existsSync(path.join(pasta, 'SKILL.md')) ? fs.readFileSync(path.join(pasta, 'SKILL.md'), 'utf8') : '';
-  if (!VERSAO_RE.test(txt)) throw new Error(`${pasta} não parece uma skill do córtex; não removi.`);
-  fs.rmSync(pasta, { recursive: true, force: true });
-  return true;
+function removerSkill(nome, home = homeDe()) {
+  const { resultados } = skillsMod.remover(nome, { appDir: ROOT, home });
+  const r = resultados[0];
+  if (r && !r.removida && r.motivo && !/não estava instalada/.test(r.motivo)) throw new Error(`${r.nome}: ${r.motivo}`);
+  return !!(r && r.removida);
 }
 
 // ----- CLAUDE.md -----
@@ -225,12 +176,12 @@ function atualizarClaudeMd(home, feito) {
 
 function instalar(opcoes = {}) {
   const { silencioso = false } = opcoes;
-  const home = os.homedir();
+  const home = homeDe();
   const feito = [], avisos = [];
   const exe = descobrirExe(opcoes, home);
   if (opcoes.exe && !fs.existsSync(exe)) avisos.push(`--exe aponta para um arquivo que não existe: ${exe}`);
   const bin = instalarComando(home, exe, feito);
-  gravarApp(home, exe, bin, feito);
+  gravarApp(home, exe, bin, feito, opcoes.dados ? path.resolve(opcoes.dados) : null);
   garantirPath(bin, feito, avisos);
   try { feito.push(...instalarSkills('todas', home)); } catch (e) { avisos.push(e.message); }
   atualizarClaudeMd(home, feito);
@@ -246,7 +197,12 @@ module.exports = { instalar, instalarSkills, removerSkill, statusSkills, skillsD
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
-  const i = argv.indexOf('--exe');
-  const exe = i >= 0 ? argv[i + 1] : (argv.find((a) => a.startsWith('--exe=')) || '').slice(6) || undefined;
-  instalar({ silencioso: argv.includes('--silencioso'), exe });
+  const valor = (nome) => {
+    const i = argv.indexOf('--' + nome);
+    if (i >= 0) return argv[i + 1];
+    const a = argv.find((x) => x.startsWith('--' + nome + '='));
+    return a ? a.slice(nome.length + 3) : undefined;
+  };
+  // --exe "<CORTEX.exe>": o comando roda pelo app · --dados "<pasta>": pasta de dados do app (%APPDATA%\CORTEX)
+  instalar({ silencioso: argv.includes('--silencioso'), exe: valor('exe'), dados: valor('dados') });
 }

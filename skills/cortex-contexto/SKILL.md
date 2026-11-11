@@ -8,7 +8,7 @@ description: Carrega o contexto de um projeto pelo CÓRTEX antes de começar a t
 
 Antes de mexer num projeto, leia o que já existe sobre ele no segundo cérebro do usuário. Isso inclui commits e sessões recentes, o diário das sessões anteriores e as notas centrais.
 
-**Como chamar:** `cortex <comando>`. Se der "command not found", use direto e até o fim da tarefa `"{{CORTEX_BIN}}/cortex" <comando>` (Git Bash, Linux, mac) ou `& "{{CORTEX_BIN}}/cortex.cmd" <comando>` (PowerShell). O CLI liga o CÓRTEX sozinho e espera o cérebro montar (até 60 s, avisando "montando o cérebro…"). Se der erro de tempo, rode de novo. Regras gerais, filtros e API estão na skill base `cortex`.
+**Como chamar:** `cortex <comando>`. Se der "command not found", use direto e até o fim da tarefa o caminho completo: `"$HOME/.cortex/bin/cortex" <comando>` (Git Bash no Windows), `& "$env:USERPROFILE\.cortex\bin\cortex.cmd" <comando>` (PowerShell) ou `"$HOME/.local/bin/cortex" <comando>` (Linux e mac). O CLI liga o CÓRTEX sozinho e espera o cérebro montar (até 60 s, avisando "montando o cérebro…"). Se der erro de tempo, rode de novo. Regras gerais, filtros e API estão na skill base `cortex`.
 
 **Projeto:** use 1) o nome que o usuário disse; 2) senão a pasta atual (pastas `gp-*` são worktrees do `glass-pets`); 3) confirme o nome exato com `cortex projetos`.
 
