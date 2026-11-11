@@ -104,3 +104,16 @@ O usuário extraiu o app dentro do OneDrive, e os 3 PCs passaram a disputar os a
 - O `Instalar CORTEX.bat` copia o app para `%LOCALAPPDATA%\Programs\CORTEX` com robocopy, fechando antes o CÓRTEX que estiver aberto. Assim o zip pode ser extraído em qualquer lugar, inclusive no OneDrive, uma vez só para os 3 PCs.
 - O app avisa quando roda de dentro de uma pasta sincronizada e oferece reinstalar.
 - Com `--sync-auto`, o instalador liga a sincronização em `OneDrive\CORTEX`. Isso só acontece se o PC nunca configurou uma, e o servidor aplica uma vez só, para que os 3 PCs se juntem sem nenhum clique a mais.
+
+## D-019 · O app se atualiza sozinho, por pacote pequeno e com volta automática
+Com 3 PCs, fechar, apagar, baixar e extrair a cada correção era trabalho demais. Por isso:
+- **Bootstrap estável:** o `main` do app é `app/inicio.js`, que nunca muda. Ele escolhe a maior versão válida entre a embutida (`resources/app`) e as baixadas em `%LOCALAPPDATA%\CORTEX\versoes\<versão>` (com `package.json`, marcador `ok`, sem marcador `ruim` e Electron compatível) e carrega o `app/main.js` dela. Servidor, interface, skills e CLI saem dessa pasta.
+- **Pacote:** `.cortexapp` é o gzip de um JSON com os arquivos de `resources/app`, sem o Electron. Tem cerca de 1,1 MB. Ao lado vai um `manifesto.json` com versão, sha256, tamanho e Electron mínimo. `npm run pacote` gera os dois em `dist/atualizacao/` e em `atualizacao/` no repositório.
+- **Fontes:** a pasta de sincronização e o GitHub (`raw.githubusercontent.com/<repo>/main/atualizacao/`). Falta de rede ou 404 é silêncio. O pacote é conferido pelo sha256, extraído em `<versão>.tmp`, renomeado e só então marcado `ok`.
+- **Propagação:** o PC que roda uma versão maior que a da pasta de sincronização publica o pacote dela lá, com escrita atômica. Um PC atualizado basta para todos.
+- **Sem incomodar:** reinicia sozinho só com a janela escondida ou sem foco há mais de 2 minutos. Se estiver em uso, a interface mostra uma faixa.
+- **Volta automática:** se uma versão baixada lança erro antes de a interface carregar, ou fecha 2 boots seguidos sem confirmar, ela é marcada `ruim` e o app reinicia na anterior. Versões ruins não são baixadas de novo.
+- **Limpeza:** ficam só as 2 versões mais recentes.
+- **CLI:** o comando `cortex` aponta para `resources/app/cli-inicio.js`, que escolhe a versão da mesma forma.
+- **Testes:** `CORTEX_VERSOES` troca a pasta de versões. `CORTEX_ATUALIZACAO_MS`, `CORTEX_ATUALIZACAO_ESPERA_MS` e `CORTEX_OCIOSO_MS` encurtam os tempos. `CORTEX_SO_EMBUTIDO=1` ignora as versões baixadas.
+

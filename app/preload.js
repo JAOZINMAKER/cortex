@@ -25,7 +25,14 @@ contextBridge.exposeInMainWorld('cortexApp', {
   info: () => ipcRenderer.invoke('app:info'),                                  // { versao, plataforma, modo, porta, dados, appDir, exe, empacotado }
   configMudou: () => ipcRenderer.invoke('app:config-mudou'),                   // chame depois de salvar /api/config
   sair: () => ipcRenderer.invoke('app:sair'),
-  aoMudarBandeja: ouvir('bandeja'),                                            // { acao: 'projeto', projeto }
+  aoMudarBandeja: ouvir('bandeja'),
+  // atualização automática: estado() → { atual, disponivel, pronta, fonte, verificando, verificadoEm, publicadoEm, erro, embutida }
+  atualizacao: {
+    estado: () => ipcRenderer.invoke('atualizacao:estado'),
+    aoMudar: ouvir('atualizacao:mudou'),
+    reiniciarAgora: () => ipcRenderer.invoke('atualizacao:reiniciar'),
+    verificarAgora: () => ipcRenderer.invoke('atualizacao:verificar'),
+  },                                            // { acao: 'projeto', projeto }
   versao: arg('versao'),
   plataforma: process.platform,
 });

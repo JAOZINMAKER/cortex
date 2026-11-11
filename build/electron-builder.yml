@@ -21,6 +21,7 @@ files:
   - skills/**
   - skill/**
   - cli.js
+  - cli-inicio.js
   - instalar.js
   - .env.exemplo
   - "!**/*.map"

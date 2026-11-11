@@ -1,9 +1,9 @@
 {
   "name": "cortex",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "CORTEX — segundo cérebro local",
-  "main": "app/main.js",
+  "main": "app/inicio.js",
   "scripts": {
     "start": "node server/index.js",
     "snapshot": "node server/snapshot.js",
@@ -11,7 +11,8 @@
     "bench": "node tools/bench.js",
     "app": "electron .",
     "icones": "node build/icone.js",
-    "dist:win": "electron-builder --win zip --x64 --config build/electron-builder.yml"
+    "dist:win": "electron-builder --win zip --x64 --config build/electron-builder.yml",
+    "pacote": "node build/pacote.js"
   },
   "engines": {
     "node": ">=18"
@@ -28,5 +29,8 @@
     "electron-builder": "25.1.8"
   },
   "productName": "CORTEX",
-  "author": "CÓRTEX"
+  "author": "CÓRTEX",
+  "cortex": {
+    "minElectron": "33.4.11"
+  }
 }

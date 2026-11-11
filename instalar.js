@@ -8,6 +8,8 @@
 //  3. TODAS as skills de skills/ em ~/.claude/skills/<nome>/SKILL.md (com caminhos reais)
 //  4. bloco curto entre marcadores em ~/.claude/CLAUDE.md
 //  5. ~/.cortex/app.json com o caminho do exe (o CLI usa para ligar o app escondido)
+// O comando aponta para <embutido>/cli-inicio.js (estável, na pasta de instalação), que roda o cli.js da versão mais nova
+// (atualização automática). --embutido "<resources/app>" informa essa pasta quando o instalador roda de uma versão baixada.
 // Só escreve o que mudou. Com --silencioso, não imprime nada quando tudo já está em dia.
 
 const fs = require('fs');
@@ -54,9 +56,22 @@ function descobrirExe(opcoes, home) {
   return null;
 }
 
-function instalarComando(home, exe, feito) {
+// pasta estável da instalação (resources/app): --embutido, CORTEX_EMBUTIDO, <pasta do exe>/resources/app ou o app.json gravado
+function descobrirEmbutido(opcoes = {}, exe = null, home = homeDe()) {
+  const tem = (d) => d && fs.existsSync(path.join(d, 'cli-inicio.js'));
+  const cands = [opcoes.embutido, process.env.CORTEX_EMBUTIDO, exe && path.join(path.dirname(exe), 'resources', 'app')];
+  const reg = lerApp(home);
+  if (reg && reg.appDir) cands.push(reg.appDir);
+  for (const c of cands) if (tem(c)) return path.resolve(c);
+  return ROOT;
+}
+
+// arquivo que o comando `cortex` roda: o cli-inicio.js estável (escolhe a versão mais nova) ou, sem ele, o cli.js daqui
+const entradaCli = (embutido) => (fs.existsSync(path.join(embutido, 'cli-inicio.js')) ? path.join(embutido, 'cli-inicio.js') : path.join(ROOT, 'cli.js'));
+
+function instalarComando(home, exe, feito, embutido = ROOT) {
   const bin = pastaBin(home);
-  const cli = path.join(ROOT, 'cli.js');
+  const cli = entradaCli(embutido);
   if (WIN) {
     const cmd = exe
       ? `@echo off\r\nsetlocal\r\nset ELECTRON_RUN_AS_NODE=1\r\n"${exe}" "${cli}" %*\r\n`
@@ -76,12 +91,12 @@ function instalarComando(home, exe, feito) {
   return bin;
 }
 
-function gravarApp(home, exe, bin, feito, dadosDir) {
+function gravarApp(home, exe, bin, feito, dadosDir, embutido = ROOT) {
   if (!exe) return;
   let versao = null;
   try { versao = require('./package.json').version; } catch { /* sem package.json */ }
   const atual = lerApp(home) || {};
-  const novo = { exe, appDir: ROOT, cli: path.join(ROOT, 'cli.js'), bin, versao, dadosDir: dadosDir || atual.dadosDir || null };
+  const novo = { exe, appDir: embutido, cli: entradaCli(embutido), bin, versao, dadosDir: dadosDir || atual.dadosDir || null };
   const igual = ['exe', 'appDir', 'cli', 'bin', 'versao', 'dadosDir'].every((k) => atual[k] === novo[k]);
   if (igual) return;
   escreverSeMudou(arquivoApp(home), JSON.stringify({ ...novo, instaladoEm: new Date().toISOString() }, null, 2) + '\n');
@@ -100,7 +115,7 @@ function lerPathWindows() {
 
 const normal = (p) => p.trim().replace(/[\\/]+$/, '').toLowerCase();
 
-function garantirPath(bin, feito, avisos) {
+function garantirPath(bin, feito, avisos, embutido = ROOT) {
   if (WIN) {
     const { tipo, valor } = lerPathWindows();
     const partes = valor.split(';').filter(Boolean);
@@ -109,7 +124,7 @@ function garantirPath(bin, feito, avisos) {
     try {
       execFileSync('reg', ['add', 'HKCU\\Environment', '/v', 'Path', '/t', tipo, '/d', novo, '/f'], { windowsHide: true, stdio: 'ignore' });
       // setx dispara WM_SETTINGCHANGE (novos terminais enxergam o PATH) e de quebra deixa CORTEX_DIR definido
-      try { execFileSync('setx', ['CORTEX_DIR', ROOT], { windowsHide: true, stdio: 'ignore' }); } catch { /* opcional */ }
+      try { execFileSync('setx', ['CORTEX_DIR', embutido], { windowsHide: true, stdio: 'ignore' }); } catch { /* opcional */ }
       feito.push(`PATH do usuário: ${bin} adicionado (vale para terminais novos; reinicie o app do Claude para as sessões enxergarem)`);
     } catch (e) {
       avisos.push(`não consegui adicionar ${bin} ao PATH (${e.message}). Use o caminho completo: "${path.join(bin, 'cortex.cmd')}"`);
@@ -130,8 +145,9 @@ function skillsDoApp() { return skillsMod.listar({ appDir: ROOT, home: homeDe() 
 function statusSkills(home = homeDe()) { return skillsMod.listar({ appDir: ROOT, home }); }
 
 // devolve as linhas do que mudou (vazio = já estava em dia)
-function instalarSkills(alvo = 'todas', home = homeDe()) {
-  const { resultados } = skillsMod.instalar(alvo, { appDir: ROOT, home });
+// {{CORTEX_DIR}} nas skills = pasta estável da instalação (as pastas de versões baixadas são apagadas na limpeza)
+function instalarSkills(alvo = 'todas', home = homeDe(), cortexDir = descobrirEmbutido({}, null, home)) {
+  const { resultados } = skillsMod.instalar(alvo, { appDir: ROOT, home, cortexDir });
   return resultados.filter((r) => r.mudou).map((r) => `skill ${r.nome}: ${path.join(r.caminho, 'SKILL.md')}`);
 }
 
@@ -198,10 +214,11 @@ function instalar(opcoes = {}) {
   const feito = [], avisos = [];
   const exe = descobrirExe(opcoes, home);
   if (opcoes.exe && !fs.existsSync(exe)) avisos.push(`--exe aponta para um arquivo que não existe: ${exe}`);
-  const bin = instalarComando(home, exe, feito);
-  gravarApp(home, exe, bin, feito, opcoes.dados ? path.resolve(opcoes.dados) : null);
-  garantirPath(bin, feito, avisos);
-  try { feito.push(...instalarSkills('todas', home)); } catch (e) { avisos.push(e.message); }
+  const embutido = descobrirEmbutido(opcoes, exe, home);
+  const bin = instalarComando(home, exe, feito, embutido);
+  gravarApp(home, exe, bin, feito, opcoes.dados ? path.resolve(opcoes.dados) : null, embutido);
+  garantirPath(bin, feito, avisos, embutido);
+  try { feito.push(...instalarSkills('todas', home, embutido)); } catch (e) { avisos.push(e.message); }
   atualizarClaudeMd(home, feito);
   if (opcoes.syncAuto) syncAuto(opcoes.dados, feito, avisos);
   if (!silencioso || feito.length || avisos.length) {
@@ -212,7 +229,7 @@ function instalar(opcoes = {}) {
   return { feito, avisos, bin, home, exe };
 }
 
-module.exports = { instalar, instalarSkills, removerSkill, statusSkills, skillsDoApp, lerApp, arquivoApp, pastaBin };
+module.exports = { instalar, descobrirEmbutido, instalarSkills, removerSkill, statusSkills, skillsDoApp, lerApp, arquivoApp, pastaBin };
 
 if (require.main === module) {
   const argv = process.argv.slice(2);
@@ -223,5 +240,5 @@ if (require.main === module) {
     return a ? a.slice(nome.length + 3) : undefined;
   };
   // --exe "<CORTEX.exe>": o comando roda pelo app · --dados "<pasta>": pasta de dados do app (%APPDATA%\CORTEX)
-  instalar({ silencioso: argv.includes('--silencioso'), exe: valor('exe'), dados: valor('dados'), syncAuto: argv.includes('--sync-auto') });
+  instalar({ silencioso: argv.includes('--silencioso'), exe: valor('exe'), dados: valor('dados'), embutido: valor('embutido'), syncAuto: argv.includes('--sync-auto') });
 }

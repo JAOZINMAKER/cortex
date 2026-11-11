@@ -49,6 +49,18 @@ Cada PC só escreve na própria subpasta e só reenvia o que mudou (uma sessão 
 
 No terminal: `cortex sync`, `cortex sync pasta "C:\Users\voce\OneDrive\CORTEX" --ligar`, `cortex sync nome CASA` e `cortex sync agora`.
 
+## Atualizações (automáticas)
+
+**Nunca mais baixe zip.** O CÓRTEX se atualiza sozinho:
+- No boot e a cada 30 minutos ele procura versão nova em dois lugares: na **pasta de sincronização** (`OneDrive\CORTEX\CORTEX-SYNC\app`) e no **GitHub** (`JAOZINMAKER/cortex`, pasta `atualizacao/`). Sem rede ou sem versão nova, não acontece nada.
+- Achou: baixa (cerca de 1 MB), confere o sha256 e guarda em `%LOCALAPPDATA%\CORTEX\versoes\<versão>`.
+- **Reinicia sozinho** quando você não está usando: com a janela na bandeja, ou sem foco há mais de 2 minutos. Se você estiver usando, aparece uma faixa discreta "ATUALIZADO PARA x.y · REINICIAR". Pela bandeja dá para **Procurar atualização** ou **Reiniciar na versão x.y**.
+- Depois de atualizar, as skills do Claude Code e o comando `cortex` são reinstalados em silêncio.
+- **Basta um PC receber a versão nova:** ele a publica na pasta de sincronização, e os outros PCs se atualizam pelo OneDrive.
+- Se uma versão nova falhar ao abrir, o app volta sozinho para a anterior e não tenta aquela versão de novo. O histórico fica em `%APPDATA%\CORTEX\atualizacao.log`.
+
+Para desligar, ponha `"atualizacao": { "ativo": false }` no `cortex.config.json`. Para usar outro repositório, use `"atualizacao": { "repo": "dono/repo" }`.
+
 ## Usar com outras sessões do Claude Code
 
 Basta dizer **"usa o córtex"**, ou pedir naturalmente:

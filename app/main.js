@@ -5,6 +5,7 @@
  * - Dados do usuário em %APPDATA%\CORTEX (config, data/, diario/, .env), fora da pasta do app.
  * - Instância única, janela sem moldura, bandeja, fechar para a bandeja, iniciar com o sistema, atalho global.
  * - Se já existir um CÓRTEX respondendo na porta, apenas conecta nele.
+ * - Atualiza sozinho (app/atualizador.js): carregado pelo bootstrap app/inicio.js, que escolhe a versão mais nova.
  * Argumentos: --escondido (sobe só na bandeja; usado pelo CLI e pelo "iniciar com o Windows").
  * Variáveis: CORTEX_CONFIG, CORTEX_DATA, PORT (testes), CORTEX_DEV=1 (DevTools).
  */
@@ -14,7 +15,11 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 
+// pasta da versão em execução (embutida em resources/app ou baixada em versoes/<v>): escolhida por app/inicio.js
 const APP_DIR = path.resolve(__dirname, '..');
+const BOOT = global.__cortexBoot || null;
+const resolver = require('./resolver');
+const VERSAO = BOOT ? BOOT.versao : (resolver.lerPkg(APP_DIR) || {}).version || app.getVersion();
 const ICONES = path.join(__dirname, 'icones');
 const ESCONDIDO = process.argv.includes('--escondido');
 const DEV = !!process.env.CORTEX_DEV;
@@ -65,13 +70,13 @@ async function esperarHttp(ms) {
 // ---------------------------------------------------------------- servidor
 let servidorInterno = null; // { parar? }
 let modo = 'interno';
-const VERSAO_APP = app.getVersion();
+const VERSAO_APP = VERSAO;
 const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // O que está na porta? null = nada; { antigo: true } = CÓRTEX de versão anterior (inclusive o da época do navegador)
 async function quemEstaNaPorta() {
   const st = await req('GET', '/api/status', null, 1500);
-  if (st.ok && st.json && ('fase' in st.json || 'versao' in st.json)) return { ...st.json, antigo: st.json.versaoApp !== VERSAO_APP };
+  if (st.ok && st.json && ('fase' in st.json || 'versao' in st.json)) return { ...st.json, antigo: resolver.comparar(st.json.versaoApp, VERSAO_APP) < 0 };
   const f = await req('GET', '/api/fontes', null, 1500);
   if (f.ok && f.json) return { antigo: true };
   return null;
@@ -188,6 +193,7 @@ async function sincronizarConfig() {
 
 // ---------------------------------------------------------------- janela
 let janela = null;
+let semFocoDesde = Date.now(); // desde quando a janela não está em uso (0 = em uso agora)
 let tray = null;
 let saindo = false;
 
@@ -212,7 +218,7 @@ function criarJanela() {
     frame: false, show: false, backgroundColor: FUNDOS[tema] || FUNDOS.grafite,
     title: 'CÓRTEX', icon: path.join(ICONES, process.platform === 'win32' ? 'icone.ico' : 'icone.png'),
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: DEV, backgroundThrottling: false,
-      additionalArguments: [`--cortex-versao=${app.getVersion()}`] },
+      additionalArguments: [`--cortex-versao=${VERSAO}`] },
   });
   janela.once('ready-to-show', () => {
     if (ESCONDIDO) return;
@@ -230,6 +236,9 @@ function criarJanela() {
   const avisar = () => { if (janela && !janela.isDestroyed()) janela.webContents.send('janela:estado', { maximizada: janela.isMaximized(), focada: janela.isFocused() }); };
   for (const ev of ['maximize', 'unmaximize', 'focus', 'blur', 'enter-full-screen', 'leave-full-screen']) janela.on(ev, () => { salvarDepois(); avisar(); });
 
+  janela.on('blur', () => { semFocoDesde = Date.now(); });
+  janela.on('focus', () => { semFocoDesde = 0; });
+  janela.on('hide', () => { semFocoDesde = semFocoDesde || Date.now(); });
   janela.on('close', (e) => {
     salvar();
     if (!saindo && geral.fecharParaBandeja && tray) { e.preventDefault(); janela.hide(); }
@@ -321,8 +330,11 @@ function montarMenuBandeja() {
   }
   itens.push(
     { label: 'Abrir pasta de dados', click: () => shell.openPath(DADOS) },
+    ...(atualizador && atualizador.estado().pronta
+      ? [{ label: `Reiniciar na versão ${atualizador.estado().disponivel}`, click: () => reiniciarNaNova(janela ? !janela.isVisible() : true) }]
+      : [{ label: 'Procurar atualização', click: () => atualizador && atualizador.verificar() }]),
     { type: 'separator' },
-    { label: modo === 'externo' ? `Conectado a ${URL_BASE()}` : `Porta ${PORTA}`, enabled: false },
+    { label: `Versão ${VERSAO} · ${modo === 'externo' ? `conectado a ${URL_BASE()}` : `porta ${PORTA}`}`, enabled: false },
     { label: 'Sair', click: () => { saindo = true; app.quit(); } },
   );
   tray.setContextMenu(Menu.buildFromTemplate(itens));
@@ -374,9 +386,119 @@ ipcMain.handle('abrir:caminho', async (_e, alvo) => {
   return (await shell.openPath(alvo)) === '';
 });
 ipcMain.handle('mostrar:no-explorador', (_e, alvo) => { if (typeof alvo === 'string' && fs.existsSync(alvo)) { shell.showItemInFolder(alvo); return true; } return false; });
-ipcMain.handle('app:info', () => ({ versao: app.getVersion(), plataforma: process.platform, modo, porta: PORTA, dados: DADOS, appDir: APP_DIR, exe: process.execPath, empacotado: app.isPackaged }));
+ipcMain.handle('app:info', () => ({ versao: VERSAO, embutida: BOOT ? BOOT.embutido : true, appDir: APP_DIR, plataforma: process.platform, modo, porta: PORTA, dados: DADOS, exe: process.execPath, empacotado: app.isPackaged }));
 ipcMain.handle('app:config-mudou', () => sincronizarConfig()); // a interface avisa após salvar /api/config
 ipcMain.handle('app:sair', () => { saindo = true; app.quit(); });
+ipcMain.handle('atualizacao:estado', () => estadoAtualizacao());
+ipcMain.handle('atualizacao:reiniciar', () => { if (atualizador && atualizador.estado().pronta) { reiniciarNaNova(janela ? !janela.isVisible() : ESCONDIDO); return true; } return false; });
+ipcMain.handle('atualizacao:verificar', async () => (atualizador ? atualizador.verificar() : estadoAtualizacao()));
+
+// ---------------------------------------------------------------- atualização automática
+let atualizador = null;
+let ultimoEstadoAtualizacao = null;
+const INTERVALO_ATUALIZACAO = Number(process.env.CORTEX_ATUALIZACAO_MS) || 30 * 60 * 1000;
+const OCIOSO_MS = Number(process.env.CORTEX_OCIOSO_MS) || 2 * 60 * 1000;
+
+// registro das atualizações em <dados>/atualizacao.log (o processo reiniciado não herda o console)
+function logAtualizacao(msg) {
+  const linha = `${new Date().toISOString()} [${VERSAO}] ${msg}`;
+  console.log('[CÓRTEX] ' + msg);
+  try {
+    const arq = path.join(DADOS, 'atualizacao.log');
+    try { if (fs.statSync(arq).size > 512 * 1024) fs.renameSync(arq, arq + '.1'); } catch { /* novo */ }
+    fs.appendFileSync(arq, linha + '\n');
+  } catch { /* sem disco */ }
+}
+
+// versão mais nova que falhou no boot e foi deixada de lado (marcador "ruim" gravado por app/inicio.js)
+function avisarVersoesRuins() {
+  const pasta = BOOT ? BOOT.pastaVersoes : resolver.pastaVersoes();
+  let nomes = [];
+  try { nomes = fs.readdirSync(pasta).filter(resolver.ehVersao); } catch { return; }
+  for (const v of nomes) {
+    if (resolver.comparar(v, VERSAO) <= 0) continue;
+    const r = lerJson(path.join(pasta, v, 'ruim'), null);
+    if (r && !r.avisado) {
+      logAtualizacao(`versão ${v} falhou no boot e foi descartada (${r.motivo}); continuando na ${VERSAO}`);
+      gravarJson(path.join(pasta, v, 'ruim'), { ...r, avisado: true });
+    }
+  }
+}
+
+function estadoAtualizacao() {
+  const e = atualizador ? atualizador.estado() : { atual: VERSAO, disponivel: null, pronta: false, fonte: null, verificando: false, verificadoEm: null, publicadoEm: null, erro: null };
+  return { ...e, atual: VERSAO, embutida: BOOT ? BOOT.embutido : true, descartadas: BOOT ? BOOT.descartadas : [] };
+}
+
+// pode publicar a versão atual na sincronização? só quando roda de um app instalado/baixado (pasta enxuta), nunca do repositório
+function podePublicar() {
+  if (process.env.CORTEX_PUBLICAR === '1') return true;
+  if (BOOT && !BOOT.embutido) return true;
+  return app.isPackaged;
+}
+
+function reiniciarNaNova(escondido) {
+  const args = process.argv.slice(1).filter((a) => a !== '--escondido');
+  if (escondido) args.push('--escondido');
+  logAtualizacao(`reiniciando para a versão ${atualizador ? atualizador.estado().disponivel : '?'}${escondido ? ' (na bandeja)' : ''}`);
+  saindo = true;
+  const fim = () => { app.relaunch({ args }); app.exit(0); };
+  try {
+    const p = servidorInterno && typeof servidorInterno.parar === 'function' ? servidorInterno.parar() : null;
+    Promise.resolve(p).catch(() => {}).finally(fim);
+    setTimeout(fim, 3000).unref();
+  } catch { fim(); }
+}
+
+// reinicia sozinho só quando ninguém está usando: janela escondida (bandeja) ou sem foco há mais de 2 min
+function talvezReiniciar() {
+  if (!atualizador || !atualizador.estado().pronta || saindo) return;
+  const escondida = !janela || janela.isDestroyed() || !janela.isVisible() || janela.isMinimized();
+  const ocioso = semFocoDesde && Date.now() - semFocoDesde > OCIOSO_MS;
+  if (escondida || ocioso) reiniciarNaNova(escondida);
+}
+
+// depois de rodar uma versão nova pela primeira vez: skills e comando `cortex` em dia, em silêncio
+function posAtualizacao() {
+  const arq = path.join(DADOS, 'versao-anterior.json');
+  const antes = (lerJson(arq, {}) || {}).versao;
+  gravarJson(arq, { versao: VERSAO, em: new Date().toISOString() });
+  if (!antes || antes === VERSAO) return;
+  if (!app.isPackaged && process.env.CORTEX_POS_ATUALIZACAO !== '1') return; // no repositório de desenvolvimento, não mexe no ~/.claude
+  logAtualizacao(`atualizado de ${antes} para ${VERSAO}: reinstalando skills e o comando cortex`);
+  try {
+    const { spawn } = require('child_process');
+    const args = [path.join(APP_DIR, 'instalar.js'), '--silencioso', '--dados', DADOS, '--embutido', BOOT ? BOOT.embutidoDir : APP_DIR];
+    if (app.isPackaged || process.env.CORTEX_POS_ATUALIZACAO === '1') args.push('--exe', process.execPath);
+    const p = spawn(process.execPath, args, { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true, stdio: 'ignore' });
+    p.on('error', () => {});
+  } catch (e) { console.log('[CÓRTEX] pós-atualização falhou:', e.message); }
+  notificar('CÓRTEX', `Atualizado para a versão ${VERSAO}.`);
+}
+
+function ligarAtualizador() {
+  atualizador = require('./atualizador').criar({
+    versaoAtual: VERSAO,
+    appDir: APP_DIR,
+    embutidoDir: BOOT ? BOOT.embutidoDir : APP_DIR,
+    pastaVersoes: BOOT ? BOOT.pastaVersoes : resolver.pastaVersoes(),
+    configPath: CONFIG_PATH,
+    podePublicar: podePublicar(),
+    obterSync: async () => { const r = await req('GET', '/api/sync', null, 4000); return r.ok && r.json ? { pasta: r.json.pasta, ativo: !!r.json.ativo } : null; },
+    log: logAtualizacao,
+    aoMudar: () => {
+      const e = estadoAtualizacao();
+      const chave = JSON.stringify([e.pronta, e.disponivel, e.verificando, e.erro]);
+      if (janela && !janela.isDestroyed()) janela.webContents.send('atualizacao:mudou', e);
+      if (chave !== ultimoEstadoAtualizacao) { ultimoEstadoAtualizacao = chave; montarMenuBandeja(); }
+      talvezReiniciar();
+    },
+  });
+  const verificar = () => atualizador.verificar().catch((e) => console.log('[CÓRTEX] verificação de atualização falhou:', e.message));
+  setTimeout(verificar, Number(process.env.CORTEX_ATUALIZACAO_ESPERA_MS) || 8000).unref();
+  setInterval(verificar, INTERVALO_ATUALIZACAO).unref();
+  setInterval(talvezReiniciar, Math.min(15000, OCIOSO_MS)).unref();
+}
 
 // ---------------------------------------------------------------- ciclo de vida
 if (!app.requestSingleInstanceLock()) {
@@ -406,12 +528,21 @@ if (!app.requestSingleInstanceLock()) {
     try {
       await ligarServidor();
     } catch (e) {
-      dialog.showErrorBox('CÓRTEX', `Não consegui ligar o servidor.\n\n${e && e.message ? e.message : e}`);
+      const msg = e && e.message ? e.message : String(e);
+      // versão baixada que não liga o servidor (e não é problema de porta): volta para a anterior
+      if (BOOT && !/porta/i.test(msg) && BOOT.falhou('servidor não ligou: ' + msg)) return;
+      dialog.showErrorBox('CÓRTEX', `Não consegui ligar o servidor.\n\n${msg}`);
       saindo = true;
       app.quit();
       return;
     }
     await janela.loadURL(URL_BASE() + '/').catch(() => {});
+    if (BOOT) BOOT.confirmar(); // a versão subiu e a interface carregou: não precisa voltar para a anterior
+    console.log(`[CÓRTEX] app ${VERSAO} (${BOOT && !BOOT.embutido ? 'baixada em ' + APP_DIR : 'embutida'})`);
+    if (BOOT && BOOT.descartadas && BOOT.descartadas.length) logAtualizacao(`versões descartadas no boot: ${BOOT.descartadas.map((d) => d.versao + ' (' + d.motivo + ')').join(', ')}`);
+    avisarVersoesRuins();
+    posAtualizacao();
+    ligarAtualizador();
     avisarPastaSincronizada();
     if (process.env.CORTEX_PRINT) printDeTeste(process.env.CORTEX_PRINT);
     await sincronizarConfig();
