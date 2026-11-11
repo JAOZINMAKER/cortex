@@ -554,6 +554,9 @@ function validar(o) {
     else if (typeof o.pasta !== 'string') erros.push({ campo: 'sync.pasta', erro: 'precisa ser um caminho' });
     else {
       const p = path.resolve(o.pasta.trim());
+      // cria a pasta quando pedido (botão "usar OneDrive") ou quando fica dentro do OneDrive deste PC
+      const od = pastaOneDrive();
+      if (!fs.existsSync(p) && (o.criar || (od && p.toLowerCase().startsWith(path.dirname(od).toLowerCase())))) { try { fs.mkdirSync(p, { recursive: true }); } catch { /* cai no erro abaixo */ } }
       try { if (!fs.statSync(p).isDirectory()) throw new Error(); novo.pasta = p; } catch { erros.push({ campo: 'sync.pasta', erro: 'pasta não existe' }); }
     }
   }
@@ -590,6 +593,8 @@ async function definir(o) {
   c.sync = { ativo: s.ativo, pasta: s.pasta, intervaloMin: s.intervaloMin, compartilhar: s.compartilhar, esquecidas: s.esquecidas || [] };
   config.salvar();
   if (mudancas.some((m) => m === 'sync.ativo' || m === 'sync.pasta' || m === 'sync.intervaloMin')) {
+    // pasta nova (ou religado): o que foi publicado antes não está lá, então publica tudo de novo
+    if (mudancas.includes('sync.pasta') || mudancas.includes('sync.ativo')) partesPublicadas = new Map();
     vigiar();
     remotos.forEach((r, id) => { if (r.origem === 'pasta') remotos.delete(id); });
     await lerRemotos();
