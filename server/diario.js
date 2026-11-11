@@ -6,10 +6,11 @@ const path = require('path');
 const { slug, dayKey, normPath } = require('./util');
 const config = require('./config');
 
-const FONTE = Object.freeze({
-  id: 'src_diario', tipo: 'obsidian', caminho: config.DIARIO_DIR, projeto: 'diario',
-  projetoPorPasta: true, ativo: true, interno: true,
-});
+// objeto estável (o watch e o servidor usam por referência); o caminho acompanha o dadosDir atual
+const FONTE = {
+  id: 'src_diario', tipo: 'obsidian', projeto: 'diario', projetoPorPasta: true, ativo: true, interno: true,
+  get caminho() { return config.DIARIO_DIR; },
+};
 
 function garantirPasta() {
   fs.mkdirSync(config.DIARIO_DIR, { recursive: true });

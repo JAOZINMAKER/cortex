@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 const { normPath, baseName, readJSON, writeJSON } = require('../util');
-const { DATA_DIR } = require('../config');
+const config = require('../config');
 
 const MAX_EVENTOS_SESSAO = 2000;
 const GAP_ATIVO = 30 * 60 * 1000;
@@ -106,7 +106,7 @@ function projetoDe(s, pastaProjeto) {
 
 async function ler(fonte) {
   const raiz = path.resolve(fonte.caminho);
-  const cacheArq = path.join(DATA_DIR, 'cache', 'claude-' + fonte.id + '.json');
+  const cacheArq = path.join(config.DATA_DIR, 'cache', 'claude-' + fonte.id + '.json');
   const cache = readJSON(cacheArq, {});
   const novoCache = {};
   const sessoes = [];

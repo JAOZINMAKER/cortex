@@ -139,7 +139,9 @@ function calcular(nos, regioesIds, opcoes = {}) {
   const regsC = ordem(cortex);
   const wC = pesos(cortex);
   const RW = 1640, RH = 740; // proporção real da superfície desdobrada (2 × profundidade × altura do arco)
-  const INSET = opcoes.lobos ? 5 : 3; // costura visível entre lobos
+  const esp = Math.max(0, Math.min(4, opcoes.espacamentoLobos === undefined ? 1 : Number(opcoes.espacamentoLobos) || 0));
+  const INSET = (opcoes.lobos ? 5 : 3) * esp; // costura visível entre lobos (CONFIGURAÇÕES → CÉREBRO)
+  const kProf = Math.max(0, Math.min(3, opcoes.profundidadeIdade === undefined ? 1 : Number(opcoes.profundidadeIdade) || 0));
   const retalhos = treemap(regsC.map((r) => ({ k: r, w: wC.get(r) })), 0, 0, RW, RH);
   let ordemReg = 0;
   for (const r of regsC) {
@@ -162,7 +164,7 @@ function calcular(nos, regioesIds, opcoes = {}) {
         const { s, u } = tParaHemi(Math.min(0.9999, Math.max(0, t)));
         const alfa = ALFA_MIN + (ALFA_MAX - ALFA_MIN) * ((S.y + S.h * rnd()) / RH);
         const idade = 1 - rank.get(n.id);
-        let prof = 0.02 + 0.17 * Math.pow(idade, 0.85) + 0.015 * rnd(); // superfície: giros legíveis
+        let prof = 0.02 + 0.17 * kProf * Math.pow(idade, 0.85) + 0.015 * rnd(); // superfície: giros legíveis
         if (n.tipo === 'branch' || n.tipo === 'worktree') prof = 0.55 + 0.08 * rnd(); // "tálamo"
         n.pos = pontoCortex(s, u, alfa, prof).map((v) => Math.round(v * 10) / 10);
       }

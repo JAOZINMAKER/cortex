@@ -83,11 +83,14 @@ function classificar(nos) {
     for (const w of c.tf.keys()) df.set(w, (df.get(w) || 0) + 1);
   }
   const limiteDf = Math.max(3, N * 0.25);
+  const org = config.get().organizacao || {};
+  const regrasLigadas = org.regrasLocais !== false;
   const agora = Date.now();
   for (let i = 0; i < nos.length; i++) {
     const n = nos[i];
     if (n.tipo === 'dia') { n.tags = ['TEMPO']; continue; }
-    const tags = regrasDe[i].slice();
+    // CONFIGURAÇÕES → ORGANIZAÇÃO → regras locais desligadas: sobra só o que o Claude classificar
+    const tags = regrasLigadas ? regrasDe[i].slice() : [];
     if (n.tipo === 'commit') tags.push('COMMIT');
     if (n.tipo === 'sessao') tags.push('SESSAO');
     const tf = tfs[i];
@@ -99,7 +102,7 @@ function classificar(nos) {
         pont.push([w, (1 + Math.log(c)) * Math.log(N / d)]);
       }
       pont.sort((a, b) => b[1] - a[1]);
-      for (const [w] of pont.slice(0, 3)) tags.push(semAcento(w).toUpperCase());
+      if (regrasLigadas) for (const [w] of pont.slice(0, 3)) tags.push(semAcento(w).toUpperCase());
     }
     const anterior = maquina[n.id];
     if (anterior && anterior.por === 'claude' && anterior.hash === n.hash) {
@@ -161,9 +164,18 @@ async function chamarClaude(item) {
   return { tags: (o.tags || []).map((t) => semAcento(String(t)).toUpperCase().replace(/[^A-Z0-9_\-]/g, '')).filter(Boolean).slice(0, 8), nota: String(o.nota || '').slice(0, 200) };
 }
 
+const chamadas = []; // timestamps da última hora (limitePorHora)
 function processarFila() {
   if (!claudeLigado()) { fila.length = 0; return; }
-  while (rodando < 2 && fila.length) {
+  const lim = Number((config.get().organizacao || {}).limitePorHora);
+  const agora = Date.now();
+  while (chamadas.length && chamadas[0] < agora - 3600000) chamadas.shift();
+  if (Number.isFinite(lim) && lim >= 0 && chamadas.length >= lim) {
+    if (!processarFila.agendado) { processarFila.agendado = setTimeout(() => { processarFila.agendado = null; processarFila(); }, 60000); processarFila.agendado.unref(); }
+    return;
+  }
+  while (rodando < 2 && fila.length && !(Number.isFinite(lim) && chamadas.length >= lim)) {
+    chamadas.push(Date.now());
     const item = fila.shift();
     rodando++;
     chamarClaude(item).then((res) => {

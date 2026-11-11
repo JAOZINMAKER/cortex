@@ -39,16 +39,23 @@ function arquivosPorMinuto() {
 let ultimoCpu = process.cpuUsage();
 let ultimoT = process.hrtime.bigint();
 let cpuPct = 0;
-setInterval(() => {
-  const agoraT = process.hrtime.bigint();
-  const uso = process.cpuUsage(ultimoCpu);
-  const dtUs = Number(agoraT - ultimoT) / 1000;
-  cpuPct = dtUs > 0 ? Math.round(((uso.user + uso.system) / dtUs) * 1000) / 10 : 0;
+// amostragem de CPU começa só quando o servidor sobe (require sem efeito colateral); devolve a função que para
+function iniciarAmostragem() {
   ultimoCpu = process.cpuUsage();
-  ultimoT = agoraT;
-  eventosSeg = contSeg;
-  contSeg = 0;
-}, 1000).unref();
+  ultimoT = process.hrtime.bigint();
+  const t = setInterval(() => {
+    const agoraT = process.hrtime.bigint();
+    const uso = process.cpuUsage(ultimoCpu);
+    const dtUs = Number(agoraT - ultimoT) / 1000;
+    cpuPct = dtUs > 0 ? Math.round(((uso.user + uso.system) / dtUs) * 1000) / 10 : 0;
+    ultimoCpu = process.cpuUsage();
+    ultimoT = agoraT;
+    eventosSeg = contSeg;
+    contSeg = 0;
+  }, 1000);
+  t.unref();
+  return () => clearInterval(t);
+}
 
 function status() {
   return {
@@ -64,4 +71,4 @@ function ultimos(n) { return buffer.slice(-n); }
 function ouvir(fn) { ouvintes.add(fn); return () => ouvintes.delete(fn); }
 function definirFila(fn) { fila = fn; }
 
-module.exports = { emitir, tocouArquivo, arquivosPorMinuto, status, ultimos, ouvir, definirFila };
+module.exports = { iniciarAmostragem, emitir, tocouArquivo, arquivosPorMinuto, status, ultimos, ouvir, definirFila };

@@ -27,6 +27,13 @@ function juntarArquivo(v, n, porCaminho) {
 function montar(parciais, statusFontes, opcoes = {}) {
   const t0 = Date.now();
   const ps = parciais.filter((p) => p.r).sort((a, b) => ORDEM_TIPO[a.fonte.tipo] - ORDEM_TIPO[b.fonte.tipo]);
+  // padrões de ignorar da config (glob no nome de qualquer pasta/arquivo do caminho)
+  const reIgn = (opcoes.ignorar || []).filter(Boolean).map((g) => require('./projeto').globParaRegex(g));
+  const ignorado = (n) => {
+    if (!reIgn.length || !(n.tipo === 'nota' || n.tipo === 'doc' || n.tipo === 'arquivo')) return false;
+    const partes = String((n.extra && n.extra.rel) || n.caminho || '').split(/[\\/]+/).filter(Boolean);
+    return partes.some((x) => reIgn.some((re) => re.test(x)));
+  };
 
   // caminhos de fonte → projeto (para casar sessões do Claude com projetos)
   const caminhosProj = parciais.filter((p) => p.fonte.tipo !== 'claude')
@@ -70,6 +77,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
     }
     for (const n0 of p.r.nos) {
       const n = n0;
+      if (ignorado(n)) continue;
       if (n.tipo === 'doc') {
         const ja = porCaminho.get(normPath(n.caminho));
         if (ja) { alias.set(n.chave, ja); continue; }
@@ -263,7 +271,8 @@ function montar(parciais, statusFontes, opcoes = {}) {
   // organização automática (tags da máquina)
   classify.classificar(nosOrd);
 
-  const fim = finalizar(nosOrd, sinapses, (id) => nomeProj.get(id.slice(2)) || id.slice(2));
+  const opLayout = { profundidadeIdade: opcoes.profundidadeIdade, espacamentoLobos: opcoes.espacamentoLobos };
+  const fim = finalizar(nosOrd, sinapses, (id) => nomeProj.get(id.slice(2)) || id.slice(2), opLayout);
 
   // eventos históricos (log) com id do nó
   const eventosHist = [];
@@ -281,7 +290,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
 
   return {
     publico: { versao: 0, geradoEm: Date.now(), regioes: fim.regioes, nos: fim.publicos, sinapses, dias, contadores: fim.contadores, fontes: statusFontes },
-    interno: { nos: nosOrd, porId, adj, historicoArquivos, eventosHist, nomeProj, msBuild: Date.now() - t0 },
+    interno: { nos: nosOrd, porId, adj, historicoArquivos, eventosHist, nomeProj, opLayout, msBuild: Date.now() - t0 },
   };
 }
 
@@ -433,7 +442,7 @@ function recortar(G, visao) {
     const a = novo[s.a], b = novo[s.b];
     if (a >= 0 && b >= 0) sinapses.push({ a, b, tipo: s.tipo, peso: s.peso });
   }
-  const fim = finalizar(copias, sinapses, (id) => nomes.get(id) || nomeProj(id), { lobos: projs.size === 1 }, (id) => extrasReg.get(id) || {});
+  const fim = finalizar(copias, sinapses, (id) => nomes.get(id) || nomeProj(id), { ...(I.opLayout || {}), lobos: projs.size === 1 }, (id) => extrasReg.get(id) || {});
   const dias = copias.filter((n) => n.tipo === 'dia').map((n) => n.titulo).sort();
   return {
     versao: P.versao, geradoEm: Date.now(), regioes: fim.regioes, nos: fim.publicos, sinapses, dias, contadores: fim.contadores,

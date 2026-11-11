@@ -12,6 +12,8 @@
  *    No recorte com um projeto só, as regiões devolvidas são os lobos (subregiões), com campos extras
  *    { projeto, lobo: true }; vizinhos de fora vão para a região "r_fora".
  *  - `node server/index.js --abrir` abre o navegador depois de subir (usado pelo abrir-cortex.bat).
+ *  - V4: `require('./server').iniciar({ porta, dadosDir, configPath, appDir })` sobe tudo dentro do processo
+ *    (app de desktop). Rotas V4 (config, temas, chave, skills, projetos) ficam em server/rotas-v4.js.
  *  - A mensagem WS `grafo` só é enviada quando a estrutura muda (nós ou sinapses); mudanças só de
  *    metadados chegam como `evento` e já estão em /api/graph na próxima busca.
  */
@@ -31,6 +33,7 @@ const visoes = require('./visoes');
 const ajustes = require('./ajustes');
 const diario = require('./diario');
 const resumo = require('./resumo');
+const v4 = require('./rotas-v4');
 const { sha1, normPath, baseName, existe, ehTexto, dayKey } = require('./util');
 const fontes = {
   obsidian: require('./sources/obsidian'),
@@ -39,9 +42,12 @@ const fontes = {
   pasta: require('./sources/folder'),
 };
 
-const ROOT = config.ROOT;
-const cfg = config.carregar();
-const PORTA = parseInt(process.env.PORT, 10) || cfg.porta || 4747;
+// definidos em iniciar(); appDir = onde estão web/, skills/ e node_modules/
+let APP = config.ROOT;
+let PORTA = 4747;
+let servidor = null;
+let wss = null;
+const desligar = []; // funções chamadas em parar()
 
 // ---------------------------------------------------------------- estado
 const parciais = new Map(); // fonteId -> { fonte, r, status, itens, erro, maxT }
@@ -58,7 +64,6 @@ function statusCompleto() {
   return { ...telemetry.status(), pronto, fase: fase(), versao, porta: PORTA, neuronios: c ? c.neuronios : 0, sinapses: c ? c.sinapses : 0, contadores: c };
 }
 
-telemetry.definirFila(() => filaReconstrucao + classify.tamanhoFila());
 
 function log(...a) { console.log('[CÓRTEX]', ...a); }
 
@@ -113,9 +118,14 @@ function assinaturaDe(pub) {
 }
 
 function montarGrafo(motivo) {
+  if (!servidor) return false; // parado no meio de uma leitura
   const lista = todasFontes().map((f) => parciais.get(f.id)).filter(Boolean).map((p) => ({ fonte: p.fonte, r: p.r }));
   const anterior = G;
-  const novo = graph.montar(lista, statusFontes(), { descobrir: (c) => projeto.descobrir(c, config.get()) });
+  const cg = config.get();
+  const novo = graph.montar(lista, statusFontes(), {
+    descobrir: (c) => projeto.descobrir(c, cg), ignorar: cg.ignorar,
+    profundidadeIdade: cg.cerebro.profundidadeIdade, espacamentoLobos: cg.cerebro.espacamentoLobos,
+  });
   cacheRecortes.clear();
   try { visoes.garantirPadrao(nomesProjetos(novo)); } catch (e) { log('visões padrão:', e.message); }
   const ass = assinaturaDe(novo.publico);
@@ -418,6 +428,7 @@ function busca(q, { projeto: proj, limite = 50 } = {}) {
     if (n.tipo === 'dia' && score < 100) score -= 15;
     res.push({ score: score + Math.min(9, n.grau / 20) + (n.modificado / 1e13), id: n.id, idCurto: n.idCurto, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte,
       regiao: n.regiao, projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, hash: n.hash || null, modificado: Math.round(n.modificado),
+      ...(n.tags && n.tags.length ? { tags: n.tags } : {}),
       ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}), ...(n.tagsAutor && n.tagsAutor.length ? { tagsAutor: n.tagsAutor } : {}),
       trecho: trecho || (n.texto || '').slice(0, 120).replace(/\s+/g, ' ') });
   });
@@ -456,6 +467,7 @@ function listar(sp) {
     total: lista.length, limite, ordem,
     itens: lista.slice(0, limite).map((n) => ({ id: n.id, idCurto: n.idCurto, tipo: n.tipo, fonte: n.fonte, titulo: n.titulo, regiao: n.regiao,
       projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, criado: Math.round(n.criado), modificado: Math.round(n.modificado), autor: n.autor, hash: n.hash || null,
+      ...(n.tags && n.tags.length ? { tags: n.tags } : {}), ...(n.tagsAutor && n.tagsAutor.length ? { tagsAutor: n.tagsAutor } : {}),
       ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}) })),
   };
 }
@@ -499,26 +511,46 @@ function nomesProjetos(g) {
   return [...ks].map((k) => g.interno.nomeProj.get(k) || k).sort();
 }
 
+// cartões de PROJETOS (V4): contadores, atividade de 30 dias, favorito/oculto (data/projetos.json)
 function listaProjetos() {
   if (!G) return [];
+  const { slug, dayKey: dk } = require('./util');
+  const prefs = v4.prefsProjetos();
+  const DIA = 864e5;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const ini30 = hoje.getTime() - 29 * DIA;
   const m = new Map();
+  const marcar = (p, t) => { if (t >= ini30) { const d = Math.floor((t - ini30) / DIA); if (d >= 0 && d < 30) p.atividade30d[d]++; } };
   for (const n of G.interno.nos) {
     if (n.tipo === 'dia') continue;
     let p = m.get(n.projeto);
-    if (!p) { p = { nome: G.interno.nomeProj.get(n.projeto) || n.projeto, regiao: 'r_' + n.projeto, neuronios: 0, notas: 0, commits: 0, sessoes: 0, ultimoPulso: 0, _subs: new Set() }; m.set(n.projeto, p); }
+    if (!p) {
+      p = { nome: G.interno.nomeProj.get(n.projeto) || n.projeto, slug: n.projeto, regiao: 'r_' + n.projeto, serial: null, neuronios: 0, notas: 0, commits: 0, linhas: 0,
+        sessoes: 0, agentes: 0, horasIA: 0, ferramentas: 0, diario: 0, ultimoPulso: 0, atividade30d: new Array(30).fill(0), _subs: new Set(), _ms: 0 };
+      m.set(n.projeto, p);
+    }
     p.neuronios++;
-    if (n.tipo === 'nota') p.notas++;
-    else if (n.tipo === 'commit') p.commits++;
-    else if (n.tipo === 'sessao' && !n.extra.agente) p.sessoes++;
+    if (n.tipo === 'nota') { if (n.fonte === 'diario') p.diario++; else p.notas++; }
+    else if (n.tipo === 'commit') { p.commits++; p.linhas += n.palavras || 0; }
+    else if (n.tipo === 'sessao') {
+      if (n.extra.agente) p.agentes++; else p.sessoes++;
+      p._ms += n.extra.duracaoMs || 0; p.ferramentas += n.extra.totalFerramentas || 0;
+      for (const e of n._eventos || []) marcar(p, e.t);
+    }
     if (n.modificado > p.ultimoPulso) p.ultimoPulso = Math.round(n.modificado);
+    marcar(p, n.criado);
+    if (dk(n.modificado) !== dk(n.criado)) marcar(p, n.modificado);
     if (n.subregiao) p._subs.add(n.subregiao);
   }
   const caminhos = new Map();
-  for (const f of config.get().fontes) if (f.projeto) { const k = require('./util').slug(f.projeto); if (!caminhos.has(k)) caminhos.set(k, []); caminhos.get(k).push(f.caminho); }
-  return [...m.entries()].sort((a, b) => b[1].ultimoPulso - a[1].ultimoPulso).map(([k, p]) => {
-    const { _subs, ...resto } = p;
-    return { ...resto, subregioes: [..._subs].sort(), caminhos: caminhos.get(k) || [] };
-  });
+  for (const f of config.get().fontes) if (f.projeto) { const k = slug(f.projeto); if (!caminhos.has(k)) caminhos.set(k, []); caminhos.get(k).push(f.caminho); }
+  const seriais = new Map(G.publico.regioes.map((r) => [r.id, r.serial]));
+  return [...m.entries()].map(([k, p]) => {
+    const { _subs, _ms, ...resto } = p;
+    const pr = prefs[k] || {};
+    return { ...resto, serial: seriais.get(p.regiao) || null, horasIA: Math.round(_ms / 360000) / 10, subregioes: [..._subs].sort(),
+      caminhos: caminhos.get(k) || [], favorito: !!pr.favorito, oculto: !!pr.oculto };
+  }).sort((a, b) => (b.favorito - a.favorito) || (b.ultimoPulso - a.ultimoPulso));
 }
 
 // visão pedida na query: ?visao=<id> ou campos soltos
@@ -606,12 +638,13 @@ async function registrar(req, res) {
   return json(res, 200, { id, idCurto: require('./util').sha1(r.chave).slice(0, 6), caminho: r.caminho, ligados: ligacoes.length, naoEncontrados: naoAchados });
 }
 
-const VENDOR = {
-  three: path.join(ROOT, 'node_modules', 'three'),
-  fonts: path.join(ROOT, 'node_modules', '@fontsource-variable', 'martian-mono', 'files'),
-};
+// node_modules pode estar no appDir (app empacotado) ou ao lado do código do servidor (desenvolvimento)
+function pastaModulo(...partes) {
+  for (const base of [APP, config.ROOT]) { const p = path.join(base, 'node_modules', ...partes); if (existe(p)) return p; }
+  return path.join(APP, 'node_modules', ...partes);
+}
 
-const servidor = http.createServer(async (req, res) => {
+async function tratar(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
   const p = decodeURIComponent(url.pathname);
   try {
@@ -727,77 +760,142 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (p === '/api/maquina') return json(res, 200, maquina(true), req);
     if (p === '/api/status') return json(res, 200, statusCompleto());
+    if (p.startsWith('/api/') && await v4.tratar(p, req, res, url, ctxV4)) return;
     if (p.startsWith('/api/')) return json(res, 404, { erro: 'rota desconhecida' });
 
     // ---- vendor
-    if (p.startsWith('/vendor/three/')) return servirArquivo(res, VENDOR.three, p.slice('/vendor/three/'.length));
-    if (p === '/vendor/marked.esm.js') return servirArquivo(res, path.join(ROOT, 'node_modules', 'marked', 'lib'), 'marked.esm.js');
-    if (p.startsWith('/vendor/fonts/')) return servirArquivo(res, VENDOR.fonts, p.slice('/vendor/fonts/'.length));
+    if (p.startsWith('/vendor/three/')) return servirArquivo(res, pastaModulo('three'), p.slice('/vendor/three/'.length));
+    if (p === '/vendor/marked.esm.js') return servirArquivo(res, pastaModulo('marked', 'lib'), 'marked.esm.js');
+    if (p.startsWith('/vendor/fonts/')) return servirArquivo(res, pastaModulo('@fontsource-variable', 'martian-mono', 'files'), p.slice('/vendor/fonts/'.length));
     // ---- estáticos
-    if (p === '/direcoes-visuais.html') return servirArquivo(res, ROOT, 'direcoes-visuais.html');
-    if (p === '/' || p === '') return servirArquivo(res, path.join(ROOT, 'web'), 'index.html');
-    return servirArquivo(res, path.join(ROOT, 'web'), p.replace(/^\/+/, ''));
+    if (p === '/direcoes-visuais.html') return servirArquivo(res, APP, 'direcoes-visuais.html');
+    if (p === '/' || p === '') return servirArquivo(res, path.join(APP, 'web'), 'index.html');
+    return servirArquivo(res, path.join(APP, 'web'), p.replace(/^\/+/, ''));
   } catch (e) {
     console.error(e);
     if (!res.headersSent) json(res, 500, { erro: String(e.message || e) });
   }
-});
+}
 
 // ---------------------------------------------------------------- WebSocket
-const wss = new WebSocketServer({ server: servidor, path: '/ws' });
 function broadcast(msg) {
+  if (!wss) return;
   const s = JSON.stringify(msg);
   for (const c of wss.clients) if (c.readyState === 1) { try { c.send(s); } catch { /* cliente caiu */ } }
 }
-wss.on('connection', (ws) => {
-  ws.send(JSON.stringify({ tipo: 'ola', versao }));
-  const va = visoes.getAtual();
-  if (va) ws.send(JSON.stringify({ tipo: 'visao', visao: va }));
-});
-telemetry.ouvir((e) => broadcast({ tipo: 'evento', ...e }));
-setInterval(() => broadcast({ tipo: 'status', ...telemetry.status(), pronto, fase: fase() }), 1000).unref();
-setInterval(() => broadcast({ tipo: 'maquina', ...maquina(false) }), 2000).unref();
-classify.onAtualizar((r) => {
-  if (r.ok) telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CLAUDE CLASSIFICOU ${r.id.slice(0, 6)} → ${r.tags.join(' ')}`, id: r.id });
-  else telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: `CLAUDE FALHOU ${r.id.slice(0, 6)} (${r.erro}) · REGRAS LOCAIS MANTIDAS` });
-});
 
-// ---------------------------------------------------------------- boot
+// contexto para as rotas V4 (server/rotas-v4.js)
+const ctxV4 = {
+  get G() { return G; }, get versao() { return versao; }, get pronto() { return pronto; }, fase: () => fase(),
+  json, lerCorpo, broadcast, telemetry, log, aoMudar, construirTudo, resolverId, listaProjetos,
+  get appDir() { return APP; },
+  limparCacheGrafo: () => { cacheJson = null; cacheRecortes.clear(); },
+};
+
+// ---------------------------------------------------------------- iniciar / parar
 function abrirNavegador(url) {
   const { spawn } = require('child_process');
   const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]] : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
   try { spawn(cmd[0], cmd[1], { detached: true, stdio: 'ignore', windowsHide: true }).unref(); } catch { /* sem navegador */ }
 }
 
-servidor.on('error', (e) => {
-  if (e.code === 'EADDRINUSE') {
-    log(`a porta ${PORTA} já está em uso — o CÓRTEX provavelmente já está aberto: http://127.0.0.1:${PORTA}`);
-    if (process.argv.includes('--abrir')) abrirNavegador(`http://127.0.0.1:${PORTA}`);
-    process.exit(0);
-  }
-  throw e;
-});
+/**
+ * Sobe o servidor do CÓRTEX dentro do processo atual (app de desktop ou script).
+ * @param {object} [op]
+ * @param {number} [op.porta]      porta (padrão: env PORT → config → 4747). 0 = porta livre qualquer.
+ * @param {string} [op.dadosDir]   pasta de dados do usuário (config, data/, diario/, .env). Padrão: env CORTEX_DADOS
+ *                                 → env CORTEX_DATA → appDir. O app passa %APPDATA%\CORTEX.
+ * @param {string} [op.configPath] arquivo de config (padrão: env CORTEX_CONFIG → <dadosDir>/cortex.config.json)
+ * @param {string} [op.appDir]     pasta do app (web/, skills/, node_modules/). Padrão: a pasta acima de server/.
+ * @returns {Promise<{ porta:number, url:string, dadosDir:string, configPath:string, parar:()=>Promise<void> }>}
+ *          Rejeita com erro.code = 'EADDRINUSE' se a porta estiver ocupada (quem chamou decide o que fazer).
+ */
+async function iniciar(op = {}) {
+  if (servidor) throw new Error('CÓRTEX já iniciado neste processo');
+  const d = config.definirDiretorios({ appDir: op.appDir, dadosDir: op.dadosDir, configPath: op.configPath });
+  APP = d.appDir;
+  config.migrarSeNecessario(log);
+  const cfg = config.carregar();
+  PORTA = op.porta !== undefined && op.porta !== null ? Number(op.porta) : (parseInt(process.env.PORT, 10) || cfg.porta || 4747);
+  telemetry.definirFila(() => filaReconstrucao + classify.tamanhoFila());
+  desligar.push(telemetry.iniciarAmostragem());
 
-servidor.listen(PORTA, '127.0.0.1', async () => {
+  servidor = http.createServer(tratar);
+  wss = new WebSocketServer({ server: servidor, path: '/ws' });
+  wss.on('error', () => { /* erros de listen já chegam pelo servidor HTTP */ });
+  wss.on('connection', (ws) => {
+    ws.send(JSON.stringify({ tipo: 'ola', versao }));
+    const va = visoes.getAtual();
+    if (va) ws.send(JSON.stringify({ tipo: 'visao', visao: va }));
+  });
+  desligar.push(telemetry.ouvir((e) => broadcast({ tipo: 'evento', ...e })));
+  const t1 = setInterval(() => broadcast({ tipo: 'status', ...telemetry.status(), pronto, fase: fase() }), 1000);
+  const t2 = setInterval(() => broadcast({ tipo: 'maquina', ...maquina(false) }), 2000);
+  desligar.push(() => { clearInterval(t1); clearInterval(t2); });
+  classify.onAtualizar((r) => {
+    if (r.ok) telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CLAUDE CLASSIFICOU ${r.id.slice(0, 6)} → ${r.tags.join(' ')}`, id: r.id });
+    else telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: `CLAUDE FALHOU ${r.id.slice(0, 6)} (${r.erro}) · REGRAS LOCAIS MANTIDAS` });
+  });
+
+  await new Promise((resolve, reject) => {
+    const erro = (e) => { servidor.off('listening', ok); reject(e); };
+    const ok = () => { servidor.off('error', erro); resolve(); };
+    servidor.once('error', erro);
+    servidor.once('listening', ok);
+    servidor.listen(PORTA, '127.0.0.1');
+  }).catch(async (e) => { await pararInterno(); throw e; });
+  PORTA = servidor.address().port;
   const url = `http://127.0.0.1:${PORTA}`;
   log(`no ar em ${url}`);
-  log(`config: ${config.CONFIG_PATH}`);
+  log(`dados: ${config.DADOS_DIR} · config: ${config.CONFIG_PATH}`);
   log(`organização com Claude: ${classify.claudeLigado() ? 'LIGADA' : 'desligada (regras locais)'}`);
-  if (process.argv.includes('--abrir')) abrirNavegador(url);
   telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CÓRTEX ONLINE · ${config.get().fontes.length} FONTES · PORTA ${PORTA}` });
-  try {
-    diario.garantirPasta();
-    const ms = await construirTudo('boot');
-    emitirHistorico();
-    pronto = true;
-    telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `BOOT COMPLETO EM ${ms} MS` });
-    vigiarTudo();
-    log('vigiando fontes');
-  } catch (e) {
-    console.error('[CÓRTEX] falha no boot:', e);
-  }
-});
 
-function sair() { watch.pararTodos(); process.exit(0); }
-process.on('SIGINT', sair);
-process.on('SIGTERM', sair);
+  // monta o grafo em segundo plano: a janela abre já, com fase MONTANDO
+  (async () => {
+    try {
+      diario.garantirPasta();
+      const ms = await construirTudo('boot');
+      if (!servidor) return;
+      emitirHistorico();
+      pronto = true;
+      telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `BOOT COMPLETO EM ${ms} MS` });
+      vigiarTudo();
+      log('vigiando fontes');
+    } catch (e) {
+      console.error('[CÓRTEX] falha no boot:', e);
+    }
+  })();
+
+  return { porta: PORTA, url, dadosDir: config.DADOS_DIR, configPath: config.CONFIG_PATH, parar: pararInterno };
+}
+
+async function pararInterno() {
+  watch.pararTodos();
+  while (desligar.length) { try { desligar.pop()(); } catch { /* segue */ } }
+  if (wss) { for (const c of wss.clients) { try { c.terminate(); } catch { /* já caiu */ } } await new Promise((r) => wss.close(() => r())); }
+  if (servidor) await new Promise((r) => { servidor.close(() => r()); if (servidor.closeAllConnections) servidor.closeAllConnections(); });
+  servidor = null; wss = null;
+  G = null; versao = 0; assinatura = ''; cacheJson = null; pronto = false; parciais.clear(); cacheRecortes.clear();
+}
+
+module.exports = { iniciar };
+
+// ---------------------------------------------------------------- modo script: `node server/index.js [--abrir]`
+if (require.main === module) {
+  const abrir = process.argv.includes('--abrir');
+  iniciar().then((r) => {
+    if (abrir) abrirNavegador(r.url);
+    const sair = () => { r.parar().finally(() => process.exit(0)); setTimeout(() => process.exit(0), 3000).unref(); };
+    process.on('SIGINT', sair);
+    process.on('SIGTERM', sair);
+  }).catch((e) => {
+    if (e && e.code === 'EADDRINUSE') {
+      log(`a porta ${PORTA} já está em uso — o CÓRTEX provavelmente já está aberto: http://127.0.0.1:${PORTA}`);
+      if (abrir) abrirNavegador(`http://127.0.0.1:${PORTA}`);
+      process.exit(0);
+    }
+    console.error('[CÓRTEX] falha ao iniciar:', e);
+    process.exit(1);
+  });
+}
