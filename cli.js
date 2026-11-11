@@ -115,23 +115,36 @@ function ligarServidor() {
   p.unref();
 }
 
-// garante servidor de pé; se `pronto`, espera também o grafo terminar de montar
+// garante servidor de pé; com `pronto`, espera também o grafo terminar de montar (máx. 60 s),
+// avisando no stderr ("montando o cérebro… N s"), para quem chama não precisar repetir o comando.
+const ESPERA_PRONTO = 60000;
 async function garantir({ pronto = true, limite = 30000 } = {}) {
   let st = await vivo();
   if (!st) {
-    if (!MODO_JSON) process.stderr.write(`[córtex] servidor fora do ar em ${BASE}; ligando em segundo plano…\n`);
+    process.stderr.write(`[córtex] servidor fora do ar em ${BASE}; ligando em segundo plano…\n`);
     ligarServidor();
   }
-  const fim = Date.now() + Math.max(limite, pronto ? 90000 : limite);
-  const fimSubir = Date.now() + limite;
+  const t0 = Date.now();
+  const fimSubir = t0 + limite;
+  const fimPronto = t0 + limite + ESPERA_PRONTO;
+  let ultimoAviso = 0;
   while (true) {
     st = await vivo();
+    // servidor antigo sem o campo `pronto` conta como pronto
     if (st && (!pronto || st.pronto !== false)) return st;
     if (!st && Date.now() > fimSubir) falhar(`o servidor não subiu em ${Math.round(limite / 1000)} s. Veja ${path.join(DATA_DIR, 'servidor.log')} ou rode "node server/index.js" em ${ROOT}.`);
-    if (Date.now() > fim) falhar('o servidor subiu, mas o grafo ainda não ficou pronto. Tente de novo em alguns segundos.');
+    if (Date.now() > fimPronto) falhar(`o grafo ainda não ficou pronto depois de ${Math.round((Date.now() - t0) / 1000)} s${st && st.fase ? ' (fase: ' + st.fase + ')' : ''}. Rode o mesmo comando de novo daqui a pouco.`);
+    const s = Math.round((Date.now() - t0) / 1000);
+    if (st && s - ultimoAviso >= 3) {
+      ultimoAviso = s;
+      process.stderr.write(`[córtex] montando o cérebro… ${s} s${st.fase ? ' · ' + st.fase : ''}\n`);
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
 }
+
+// id principal para humanos e para citar: o idCurto de 6 caracteres (o Ctrl+K do app acha)
+const curto = (x) => (x && (x.idCurto || (x.id ? String(x.id).slice(0, 6) : ''))) || '';
 
 async function api(metodo, rota, corpo) {
   let r;
@@ -144,13 +157,22 @@ async function api(metodo, rota, corpo) {
   return r;
 }
 
+// devolve true se tentou abrir; false quando não há navegador neste ambiente (aí só imprimimos a URL)
 function abrirNavegador(url) {
   const plat = process.platform;
   try {
-    if (plat === 'win32') spawn('cmd', ['/c', 'start', '""', url], { detached: true, windowsHide: true, stdio: 'ignore' }).unref();
-    else if (plat === 'darwin') spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
-    else spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
-  } catch { /* sem navegador: só mostra a URL */ }
+    if (plat === 'win32') { spawn('cmd', ['/c', 'start', '""', url], { detached: true, windowsHide: true, stdio: 'ignore' }).unref(); return true; }
+    if (plat === 'darwin') { spawn('open', [url], { detached: true, stdio: 'ignore' }).unref(); return true; }
+    if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
+    const temXdg = (process.env.PATH || '').split(':').some((d) => d && fs.existsSync(path.join(d, 'xdg-open')));
+    if (!temXdg) return false;
+    spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).on('error', () => {}).unref();
+    return true;
+  } catch { return false; }
+}
+function avisarAbertura(url, abriu) {
+  if (abriu) out(`abrindo ${url}`);
+  else out(`não há navegador neste ambiente. Abra no navegador: ${url}`);
 }
 
 // ---------- visões ----------
@@ -198,12 +220,12 @@ async function resolverVisao(alvo, op) {
 const C = {};
 
 C.status = async (pos, op) => {
-  const st = await garantir({ pronto: false });
+  const st = await garantir({ pronto: !!op.esperar });
   let projetos = null;
   try { const r = await req('GET', '/api/projetos'); if (r.status === 200 && r.json) projetos = r.json.projetos; } catch { /* opcional */ }
   if (MODO_JSON) return out(JSON.stringify({ rodando: true, url: BASE, ...st, projetos }));
   out(`CÓRTEX rodando em ${BASE}`);
-  out(`grafo v${st.versao ?? '?'} · ${st.pronto === false ? 'MONTANDO…' : 'pronto'} · cpu ${st.cpu ?? '?'}% · mem ${st.memMB ?? '?'} MB · fila ${st.fila ?? 0}`);
+  out(`grafo v${st.versao ?? '?'} · ${st.pronto === false ? 'MONTANDO' + (st.fase ? ' (' + st.fase + ')' : '') + '… (use --esperar, ou rode qualquer comando de leitura: ele espera sozinho)' : 'pronto'} · cpu ${st.cpu ?? '?'}% · mem ${st.memMB ?? '?'} MB · fila ${st.fila ?? 0}`);
   if (projetos) {
     const n = projetos.reduce((s, p) => s + (p.neuronios || 0), 0);
     out(`${projetos.length} projetos · ${n} neurônios`);
@@ -230,6 +252,7 @@ C.resumo = async (pos, op) => {
   const proj = pos[0] || op.projeto;
   if (proj) q.set('projeto', proj);
   if (op.dias) q.set('dias', String(op.dias));
+  if (MODO_JSON) q.set('formato', 'json');
   const r = await api('GET', '/api/resumo?' + q.toString());
   if (MODO_JSON) return out(r.json ? JSON.stringify(r.json) : JSON.stringify({ texto: r.texto }));
   out(r.json ? (r.json.texto || r.json.markdown || JSON.stringify(r.json, null, 2)) : r.texto);
@@ -238,6 +261,7 @@ C.resumo = async (pos, op) => {
 C.buscar = async (pos, op) => {
   const termo = pos.join(' ').trim();
   if (!termo) falhar('uso: cortex buscar "<texto>" [--projeto X] [--json]');
+  if (termo.length < 2) falhar('a busca precisa de pelo menos 2 caracteres.');
   await garantir();
   const q = new URLSearchParams({ q: termo });
   if (op.projeto) q.set('projeto', String(op.projeto));
@@ -252,7 +276,7 @@ C.buscar = async (pos, op) => {
   if (MODO_JSON) return out(JSON.stringify(rs));
   if (!rs.length) return out(`nada encontrado para "${termo}".`);
   for (const x of rs) {
-    out(`${x.id}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 70)}`);
+    out(`${curto(x)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 70)}`);
     const meta = [x.fonte, String(x.regiao || '').replace(/^r_/, '')].filter(Boolean).join(' · ');
     if (meta || x.trecho) out(`        ${meta}${x.trecho ? '  — ' + corta(x.trecho, 90) : ''}`);
   }
@@ -276,14 +300,14 @@ C.no = async (pos, op) => {
   const d = await acharNo(alvo);
   if (MODO_JSON) return out(JSON.stringify(d));
   const n = d.no;
-  out(`${n.id} · ${String(n.tipo).toUpperCase()} · ${String(n.fonte).toUpperCase()} · ${n.titulo}`);
+  out(`${curto(n)} · ${String(n.tipo).toUpperCase()} · ${String(n.fonte).toUpperCase()} · ${n.titulo}   (id ${n.id})`);
   out(`região ${String(n.regiao).replace(/^r_/, '')}/${n.subregiao || '—'} · autor ${n.autor || '—'} · grau ${n.grau} · ${n.palavras} palavras`);
   out(`criado ${data(n.criado)} · modificado ${data(n.modificado)} · hash ${n.hash || '—'}`);
   if (n.caminho) out(`caminho ${n.caminho}`);
   const tags = (d.correcao && d.correcao.tags) || (d.maquina && d.maquina.tags) || n.tags || [];
   if (tags.length) out(`tags da máquina: ${tags.join(', ')}`);
   const vz = (d.vizinhos || []).slice(0, 8);
-  if (vz.length) { out('vizinhos:'); for (const v of vz) out(`  ${v.id}  ${corta(v.titulo, 60)}  (${typeof v.forca === 'number' ? v.forca.toFixed(2) : v.forca})`); }
+  if (vz.length) { out('vizinhos:'); for (const v of vz) out(`  ${curto(v)}  ${corta(v.titulo, 60)}  (${typeof v.forca === 'number' ? v.forca.toFixed(2) : v.forca})`); }
   const c = d.conteudo || {};
   if (c.corpo) { out('--- conteúdo ---'); out(corta(c.corpo, op.completo ? 1e9 : 1500).replace(/ (#{1,6} )/g, '\n$1')); }
   if (!op.completo && c.corpo && c.corpo.length > 1500) out('(cortado; use --completo ou --json)');
@@ -295,30 +319,66 @@ C.mostrar = async (pos, op) => {
     falhar('uso: cortex mostrar <projeto|visão|tudo> [--fontes git,claude] [--tipos nota,commit] [--desde 7d] [--tags a,b] [--texto x] [--vizinhos 1]');
   }
   await garantir();
-  const v = await resolverVisao(alvo, op);
-  const corpo = v.salva ? { id: v.id } : v;
-  const r = await api('POST', '/api/visao/atual', corpo);
-  if (MODO_JSON) return out(JSON.stringify(r.json || { ok: true, visao: corpo }));
-  out(`visão aplicada nas janelas abertas: ${v.nome}`);
-  if (op.abrir) { abrirNavegador(BASE + '/'); out(`abrindo ${BASE}/`); }
+  const { v, id, janelas } = await aplicarVisao(alvo, op);
+  const url = urlVisao(id);
+  let abriu = null;
+  if (op.abrir) abriu = abrirNavegador(url);
+  if (MODO_JSON) return out(JSON.stringify({ ok: true, visao: { ...v, id }, janelas, url, abriu }));
+  if (op.abrir) { out(`visão: ${v.nome}`); avisarAbertura(url, abriu); return; }
+  if (janelas === 0) out(`nenhuma janela aberta; use --abrir para abrir uma (o mesmo comando + --abrir). A visão "${v.nome}" ficou salva como atual: ${url}`);
+  else out(`visão aplicada em ${janelas == null ? 'todas as' : janelas} janela${janelas === 1 ? '' : 's'} aberta${janelas === 1 ? '' : 's'}: ${v.nome}`);
 };
 
+// aplica a visão no servidor (vale para toda janela aberta e para as que abrirem depois)
+async function aplicarVisao(alvo, op) {
+  const v = await resolverVisao(alvo, op);
+  const r = await api('POST', '/api/visao/atual', v.salva ? { id: v.id } : v);
+  const id = (r.json && r.json.visao && r.json.visao.id) || v.id;
+  const janelas = r.json && typeof r.json.janelas === 'number' ? r.json.janelas : null;
+  return { v, id, janelas };
+}
+const urlVisao = (id) => BASE + '/' + (id ? '?visao=' + encodeURIComponent(id) : '');
+
 C.abrir = async (pos, op) => {
-  await garantir({ pronto: false });
   const alvo = pos.join(' ').trim();
-  let url = BASE + '/';
-  if (alvo || ['fontes', 'tipos', 'tags', 'desde', 'texto'].some((k) => op[k] !== undefined)) {
+  const filtrou = alvo || ['fontes', 'tipos', 'tags', 'desde', 'ate', 'texto', 'grau', 'vizinhos'].some((k) => op[k] !== undefined);
+  let url = BASE + '/', nome = null;
+  if (filtrou) {
     await garantir();
-    const v = await resolverVisao(alvo, op);
-    // a visão atual vale para toda janela que abrir; o parâmetro na URL é só um reforço
-    const r = await api('POST', '/api/visao/atual', v.salva ? { id: v.id } : v);
-    const id = (r.json && r.json.visao && r.json.visao.id) || v.id;
-    url += '?visao=' + encodeURIComponent(id) + (v.projetos ? '&projetos=' + encodeURIComponent(v.projetos.join(',')) : '');
-    if (!MODO_JSON) out(`visão: ${v.nome}`);
+    const { v, id } = await aplicarVisao(alvo, op);
+    url = urlVisao(id); nome = v.nome;
+  } else await garantir({ pronto: false });
+  const abriu = abrirNavegador(url);
+  if (MODO_JSON) return out(JSON.stringify({ url, abriu }));
+  if (nome) out(`visão: ${nome}`);
+  avisarAbertura(url, abriu);
+};
+
+C.listar = async (pos, op) => {
+  await garantir();
+  const q = new URLSearchParams();
+  const proj = op.projeto && op.projeto !== true ? String(op.projeto) : pos[0];
+  if (proj) q.set('projeto', proj);
+  const desde = tempo(op.desde);
+  if (desde) q.set('desde', String(Math.round(desde)));
+  const ate = tempo(op.ate);
+  if (ate) q.set('ate', String(Math.round(ate)));
+  if (op.tipos) q.set('tipos', lista(op.tipos).join(','));
+  if (op.fontes) q.set('fontes', lista(op.fontes).join(','));
+  const lim = Number(op.limite) || 30;
+  q.set('limite', String(lim));
+  const r = await api('GET', '/api/listar?' + q.toString());
+  const j = r.json || {};
+  const itens = Array.isArray(j) ? j : (j.itens || j.nos || j.resultados || []);
+  if (MODO_JSON) return out(JSON.stringify(j));
+  if (!itens.length) return out('nada no recorte pedido.');
+  for (const x of itens.slice(0, lim)) {
+    const t = x.modificado || x.criado || x.t;
+    const proj_ = x.projeto || String(x.regiao || '').replace(/^r_/, '');
+    out(`${curto(x)}  ${data(t)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 64)}${proj_ ? '  · ' + proj_ : ''}${x.autor ? ' · ' + x.autor : ''}`);
   }
-  abrirNavegador(url);
-  if (MODO_JSON) return out(JSON.stringify({ url }));
-  out(`abrindo ${url}`);
+  const total = j.total ?? itens.length;
+  if (total > lim) out(`(${total} no total; use --limite N)`);
 };
 
 function lerStdin() {
@@ -339,7 +399,9 @@ C.registrar = async (pos, op) => {
   if (op.ligar) corpo.ligar = lista(op.ligar);
   const r = await api('POST', '/api/registrar', corpo);
   if (MODO_JSON) return out(JSON.stringify(r.json));
-  out(`registrado: ${r.json && r.json.id ? r.json.id + ' · ' : ''}${(r.json && r.json.caminho) || ''}`);
+  const j = r.json || {};
+  out(`registrado: ${j.id ? curto(j) + ' · ' : ''}${j.caminho || ''}`);
+  out('o neurônio aparece no cérebro em poucos segundos (fonte DIÁRIO).');
 };
 
 C.conectar = async (pos, op) => {
@@ -395,12 +457,13 @@ C.parar = async () => {
 
 const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
 
-  cortex status                       rodando? versão do grafo, projetos
+  cortex status [--esperar]           rodando? versão do grafo, projetos (--esperar: até ficar pronto)
   cortex abrir [projeto]              abre o navegador (já filtrado no projeto)
   cortex projetos                     lista os projetos e a atividade
   cortex resumo [projeto] [--dias N]  resumo em markdown para ler como contexto
-  cortex buscar "<texto>" [--projeto X]
-  cortex no <id|título> [--completo]  conteúdo, vizinhos e metadados
+  cortex listar [--projeto X] [--desde 7d] [--tipos commit,sessao] [--fontes git] [--limite N]
+  cortex buscar "<texto>" [--projeto X] (2+ caracteres)
+  cortex no <id|título> [--completo]  id = idCurto (6), id longo (16) ou hash git
   cortex mostrar <projeto|visão|tudo> [--fontes git,claude] [--tipos nota,commit]
                  [--desde 7d] [--tags a,b] [--texto x] [--vizinhos 1] [--abrir]
   cortex registrar --projeto X --titulo "..." --texto "..." [--tags a,b] [--ligar id1,id2]
@@ -415,7 +478,7 @@ const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
   const { pos, op } = parse(process.argv.slice(2));
   MODO_JSON = !!op.json;
   const cmd = (pos.shift() || 'ajuda').toLowerCase();
-  const alias = { help: 'ajuda', '-h': 'ajuda', '--help': 'ajuda', open: 'abrir', search: 'buscar', node: 'no', 'nó': 'no', show: 'mostrar', log: 'registrar', connect: 'conectar', rebuild: 'reconstruir', projects: 'projetos', summary: 'resumo' };
+  const alias = { list: 'listar', ls: 'listar', help: 'ajuda', '-h': 'ajuda', '--help': 'ajuda', open: 'abrir', search: 'buscar', node: 'no', 'nó': 'no', show: 'mostrar', log: 'registrar', connect: 'conectar', rebuild: 'reconstruir', projects: 'projetos', summary: 'resumo' };
   const nome = alias[cmd] || cmd;
   if (nome === 'ajuda') return out(AJUDA);
   if (!C[nome]) falhar(`comando desconhecido: ${cmd}\n\n${AJUDA}`);
