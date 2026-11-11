@@ -15,7 +15,18 @@ if not exist "node_modules\three" (
   call npm ci --no-audit --no-fund || call npm install --no-audit --no-fund
 )
 
-echo [CORTEX] Ligando a maquina em http://127.0.0.1:4747
-start "" /min cmd /c "timeout /t 3 >nul & start http://127.0.0.1:4747"
-node server\index.js
+rem comando "cortex", PATH, skill do Claude Code e CLAUDE.md (so imprime quando muda algo)
+node instalar.js --silencioso
+
+rem ja esta rodando? so abre o navegador
+node cli.js ping >nul 2>nul
+if not errorlevel 1 (
+  echo [CORTEX] Ja esta ligado. Abrindo o navegador.
+  node cli.js abrir
+  timeout /t 3 >nul
+  exit /b 0
+)
+
+echo [CORTEX] Ligando a maquina. Esta janela mostra o log; feche para desligar.
+node server\index.js --abrir
 pause
