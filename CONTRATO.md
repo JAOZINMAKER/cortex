@@ -279,3 +279,44 @@ Na seção SKILLS: cartão por skill com descrição, status no Claude Code (ins
 - Tags da máquina de worktrees e branches usam só os nomes relativos (o caminho absoluto acima da raiz da fonte não entra).
 - **Diário nunca sobrescreve:** se o arquivo `AAAA-MM-DD-<slug>.md` já existir, o registro vira `-2`, `-3`… A escrita usa a flag `wx`, que também protege contra dois registros simultâneos.
 - **`POST /api/cache/limpar`** apaga `data/cache/` e a interpretação da máquina (`data/maquina.json` e o cache em memória do classificador); as correções do usuário ficam. Depois reconstrói tudo e responde `{ ok, liberadoMB, versao, ms }`.
+
+## V5: sincronização entre PCs
+
+O usuário usa o CÓRTEX em mais de um PC. Cada instalação só enxerga o disco local; a V5 junta os cérebros.
+
+### Modelo
+- Cada instalação tem `maquina = { id (uuid estável em <dados>/maquina.json), nome (padrão: hostname, editável) }`.
+- **Pasta de sincronização** escolhida pelo usuário (qualquer pasta que um serviço já sincroniza: OneDrive, Google Drive, Dropbox, rede ou pendrive). Estrutura:
+  ```
+  <pasta>/CORTEX-SYNC/
+    LEIA-ME.txt
+    maquinas/<id>/manifesto.json   { id, nome, versaoApp, geradoEm, contadores, projetos[], fontes[{tipo,projeto,caminho}] }
+    maquinas/<id>/pacote.json.gz   { formato: 1, maquina, geradoEm, nos[], sinapses[], conteudos{ id: {formato, corpo} } }
+  ```
+  Cada máquina **só escreve na própria pasta** (sem conflitos de sincronização). Escrita atômica (tmp + rename), no máximo a cada `intervaloMin` (padrão 2) e logo depois de uma reconstrução; ao fechar o app, publica uma última vez.
+- O pacote leva **só o que veio das fontes locais** dessa máquina (nunca reexporta o que leu de outra máquina), mais o diário local. Opções do que compartilhar: `notas: "conteudo" | "metadados"` (padrão conteudo), `git`, `sessoes`, `pastas`, `diario` (padrão todas true). Conteúdos grandes cortados (nota > 200 KB → só os primeiros 200 KB).
+- Ler: todas as `maquinas/*` com id ≠ o meu viram fontes internas `remoto` (status visível em /api/fontes com `maquina`). Vigia `<pasta>/CORTEX-SYNC/maquinas/` (chokidar, com debounce de 5 s, tolerante a arquivo parcial/corrompido: ignora e tenta de novo depois).
+- **Junção**: tudo cai no projeto pelo nome (as regras de apelido valem também para o que vem de fora). Duplicatas viram um nó só, com `maquinas: [nomes]`:
+  - commit: projeto + sha;
+  - nota de cofre: projeto + caminho relativo ao cofre (fica a versão com `modificado` mais recente; o conteúdo vem dela);
+  - arquivo do git: projeto + caminho relativo;
+  - sessão do Claude: sessionId;
+  - diário: projeto + nome do arquivo;
+  - dia: data.
+  Os ids dos nós são estáveis entre máquinas (hash da chave natural acima, sem caminho absoluto), assim citar `idCurto` funciona em qualquer PC.
+- Todo nó ganha `maquina` (nome de onde veio; se veio de várias, a primeira) e `maquinas` (lista). `/api/no/:id` funciona para nós remotos (conteúdo do pacote). "Abrir no disco" só aparece se o caminho existir nesta máquina.
+- Visões ganham o filtro `maquinas?: string[]`.
+
+### API
+- `GET /api/sync` → `{ ativo, pasta, maquina, compartilhar, intervaloMin, ultimaPublicacao, erro?, sugestoes: [{rotulo, caminho}] /*OneDrive, Google Drive, Dropbox detectados*/, maquinas: [{ id, nome, eu, geradoEm, neuronios, projetos, status: "OK"|"ANTIGO"|"ERRO" }] }`
+- `POST /api/sync` `{ ativo?, pasta?, nome?, compartilhar?, intervaloMin? }` · `POST /api/sync/agora` (publica e relê) · `POST /api/sync/exportar` `{ caminho }` (grava um `.cortexpack` avulso) · `POST /api/sync/importar` `{ caminho }` (copia o pacote para `<dados>/importados/` e trata como máquina remota, mesmo sem pasta sincronizada) · `DELETE /api/sync/maquinas/:id` (esquecer uma máquina: só para de ler; não apaga arquivos alheios, exceto pacotes importados).
+- WS `sync` → o mesmo objeto de `GET /api/sync` quando muda. Eventos no log: "PUBLICADO", "RECEBIDO DE <PC>".
+- Config: seção `sync` em `/api/config`.
+
+### CLI
+`cortex sync` (status) · `cortex sync pasta "<caminho>"` · `cortex sync ligar|desligar` · `cortex sync agora` · `cortex sync nome "<nome>"` · `cortex sync exportar <arquivo>` · `cortex sync importar <arquivo>`.
+
+### Interface
+- CONFIGURAÇÕES → **SINCRONIZAÇÃO** (nova subseção): liga/desliga, escolher pasta (seletor nativo + botões das sugestões detectadas), nome deste PC, o que compartilhar, intervalo, tabela de máquinas (nome, última publicação, neurônios, projetos, status, esquecer), "sincronizar agora", exportar/importar pacote, aviso claro de que ligar envia dados para a pasta escolhida (e, portanto, para o serviço de nuvem dela).
+- **Cérebro vazio** (zero neurônios ou só fontes AUSENTE): tela de boas-vindas com 2 caminhos grandes: "CONECTAR FONTES DESTE PC" e "SINCRONIZAR COM OUTRO PC" (atalho para a subseção, com as sugestões de pasta já listadas).
+- Indicador na barra de título: `SYNC ● 2 PCs` (clicar abre a subseção). Neurônios remotos têm marca de máquina nos rótulos/anel/painel ("DE: PC-ESCRITORIO"), e o painel VISÃO ganha filtro por máquina. Página do projeto mostra de quais PCs vieram os dados.
