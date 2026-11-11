@@ -261,6 +261,24 @@ async function tratar(p, req, res, url, ctx) {
     return true;
   }
 
+  // ---- cache
+  if (p === '/api/cache/limpar' && m === 'POST') {
+    const fs = require('fs');
+    const dir = path.join(config.DATA_DIR, 'cache');
+    let bytes = 0;
+    const somar = (d) => { try { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) somar(f); else bytes += fs.statSync(f).size; } } catch { /* vazio */ } };
+    somar(dir);
+    try { bytes += fs.statSync(path.join(config.DATA_DIR, 'maquina.json')).size; } catch { /* sem arquivo */ }
+    fs.rmSync(dir, { recursive: true, force: true });
+    classify.limparCache();
+    projeto.limparCache();
+    ctx.limparCacheGrafo();
+    ctx.telemetry.emitir({ nivel: 'ALERTA', fonte: 'sistema', msg: `CACHE LIMPO · ${(bytes / 1048576).toFixed(1)} MB · RECONSTRUINDO` });
+    const ms = await ctx.construirTudo('cache limpo');
+    json(res, 200, { ok: true, liberadoMB: Math.round(bytes / 104857.6) / 10, versao: ctx.versao, ms });
+    return true;
+  }
+
   // ---- temas
   if (p === '/api/temas' && m === 'GET') { json(res, 200, { temas: temasTodos(), prontos: [...TEMAS_PRONTOS] }); return true; }
   if (p === '/api/temas' && m === 'POST') {

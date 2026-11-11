@@ -218,4 +218,12 @@ function salvarCorrecao(id, { tags, regiao }) {
 
 function onAtualizar(fn) { aoAtualizar = fn; }
 
-module.exports = { classificar, interpretacao, correcao, todasCorrecoes, salvarCorrecao, tamanhoFila, onAtualizar, claudeLigado };
+// apaga a interpretação da máquina (maquina.json + cache em memória). As correções do usuário ficam.
+function limparCache() {
+  cacheTexto.clear();
+  maquina = {};
+  fila.length = 0;
+  try { require('fs').rmSync(ARQ_MAQ(), { force: true }); } catch { /* já não existe */ }
+}
+
+module.exports = { limparCache, classificar, interpretacao, correcao, todasCorrecoes, salvarCorrecao, tamanhoFila, onAtualizar, claudeLigado };

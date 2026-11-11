@@ -30,8 +30,6 @@ function escrever({ projeto, titulo, texto, tags, autor, ligacoes }) {
   const dir = path.join(config.DIARIO_DIR, slug(projeto));
   fs.mkdirSync(dir, { recursive: true });
   const base = `${dayKey(agora.getTime())}-${slug(titulo).slice(0, 60)}`;
-  let arq = path.join(dir, base + '.md');
-  for (let i = 2; fs.existsSync(arq); i++) arq = path.join(dir, `${base}-${i}.md`);
   const tagsL = (tags || []).map((t) => String(t).trim().replace(/^#/, '')).filter(Boolean).slice(0, 20);
   const lig = (ligacoes || []).slice(0, 50);
   const fm = [
@@ -50,8 +48,15 @@ function escrever({ projeto, titulo, texto, tags, autor, ligacoes }) {
     for (const l of lig) corpo.push(`- [[${linhaWiki(l.titulo)}]] \`${l.id.slice(0, 6)}\``);
     corpo.push('');
   }
-  fs.writeFileSync(arq, fm.concat(corpo).join('\n'), 'utf8');
-  return { caminho: arq, chave: 'nota:' + normPath(arq) };
+  // nunca sobrescreve: flag 'wx' falha se o arquivo existir (inclusive em corrida); aí tenta -2, -3...
+  const conteudo = fm.concat(corpo).join('\n');
+  let arq;
+  for (let i = 1; i < 1000; i++) {
+    arq = path.join(dir, i === 1 ? base + '.md' : `${base}-${i}.md`);
+    try { fs.writeFileSync(arq, conteudo, { encoding: 'utf8', flag: 'wx' }); return { caminho: arq, chave: 'nota:' + normPath(arq) }; }
+    catch (e) { if (e.code !== 'EEXIST') throw e; }
+  }
+  throw new Error('nomes esgotados para ' + base);
 }
 
 module.exports = { FONTE, garantirPasta, escrever };
