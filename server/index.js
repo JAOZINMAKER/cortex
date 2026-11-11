@@ -51,6 +51,12 @@ let assinatura = '';
 let cacheJson = null; // { versao, buf, gz }
 let filaReconstrucao = 0;
 let pronto = false;
+// fase: MONTANDO até o primeiro grafo completo; PRONTO depois (reconstruções seguintes não voltam a MONTANDO)
+const fase = () => (pronto ? 'PRONTO' : 'MONTANDO');
+function statusCompleto() {
+  const c = G ? G.publico.contadores : null;
+  return { ...telemetry.status(), pronto, fase: fase(), versao, porta: PORTA, neuronios: c ? c.neuronios : 0, sinapses: c ? c.sinapses : 0, contadores: c };
+}
 
 telemetry.definirFila(() => filaReconstrucao + classify.tamanhoFila());
 
@@ -273,7 +279,7 @@ function maquina(comTelemetria) {
 function publicoDe(i) { return G.publico.nos[i]; }
 
 async function detalheNo(id) {
-  const i = G.interno.porId.get(id);
+  const i = resolverId(id);
   if (i === undefined) return null;
   const n = G.interno.nos[i];
   const entrada = [], saida = [];
@@ -282,11 +288,11 @@ async function detalheNo(id) {
     if (s.a !== i && s.b !== i) continue;
     const outro = s.a === i ? s.b : s.a;
     const o = G.interno.nos[outro];
-    const item = { id: o.id, titulo: o.titulo, tipo: s.tipo, peso: s.peso };
+    const item = { id: o.id, idCurto: o.idCurto, titulo: o.titulo, tipo: s.tipo, peso: s.peso };
     if (s.a === i) { if (saida.length < 300) saida.push(item); } else if (entrada.length < 300) entrada.push(item);
     if (s.tipo !== 'DIA') forca.set(outro, (forca.get(outro) || 0) + s.peso);
   }
-  const vizinhos = [...forca.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([j, f]) => ({ id: G.interno.nos[j].id, titulo: G.interno.nos[j].titulo, forca: Math.round(f * 100) / 100 }));
+  const vizinhos = [...forca.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12).map(([j, f]) => ({ id: G.interno.nos[j].id, idCurto: G.interno.nos[j].idCurto, titulo: G.interno.nos[j].titulo, forca: Math.round(f * 100) / 100 }));
 
   const historico = [];
   const conteudo = { formato: 'texto', corpo: '' };
@@ -348,30 +354,100 @@ async function detalheNo(id) {
   };
 }
 
-function busca(q) {
+// aceita id (16 hex), idCurto (6 hex) ou hash/sha do git (prefixo com 7+ caracteres) → índice
+function resolverId(x) {
+  if (!G || !x) return undefined;
+  const k = String(x).trim().toLowerCase();
+  const I = G.interno;
+  if (I.porId.has(k)) return I.porId.get(k);
+  if (/^[0-9a-f]{6}$/.test(k)) {
+    for (let i = 0; i < I.nos.length; i++) if (I.nos[i].idCurto === k) return i;
+  }
+  if (/^[0-9a-f]{6,40}$/.test(k)) {
+    let melhor;
+    for (let i = 0; i < I.nos.length; i++) {
+      const n = I.nos[i];
+      const sha = (n.extra && n.extra.sha) || n.hash || '';
+      if (sha && (sha.startsWith(k) || (k.length >= 7 && k.startsWith(n.hash || '~')))) {
+        if (melhor === undefined || (n.tipo === 'commit' && I.nos[melhor].tipo !== 'commit')) melhor = i;
+      }
+      if (n.id.startsWith(k) && melhor === undefined && k.length >= 7) melhor = i;
+    }
+    return melhor;
+  }
+  return undefined;
+}
+
+const TIPOS_NO = new Set(['nota', 'commit', 'branch', 'worktree', 'sessao', 'arquivo', 'doc', 'dia']);
+const SINONIMOS_TIPO = { commits: 'commit', sessoes: 'sessao', 'sessões': 'sessao', 'sessão': 'sessao', notas: 'nota', branches: 'branch', arquivos: 'arquivo', docs: 'doc', dias: 'dia', worktrees: 'worktree' };
+
+// ordem: id exato > título exato > prefixo > substring (título) > caminho > texto > tags > tipo
+function busca(q, { projeto: proj, limite = 50 } = {}) {
   if (!G || !q) return [];
-  const termo = q.toLowerCase().trim();
-  if (!termo) return [];
+  const termo = String(q).toLowerCase().trim();
+  if (termo.length < 2) return [];
+  const chaveProj = proj ? require('./util').slug(proj) : null;
+  const idx = resolverId(termo);
+  const tipoTermo = TIPOS_NO.has(termo) ? termo : SINONIMOS_TIPO[termo] || null;
   const res = [];
-  for (const n of G.interno.nos) {
+  G.interno.nos.forEach((n, i) => {
+    if (chaveProj && n.projeto !== chaveProj) return;
     const t = (n.titulo || '').toLowerCase();
     let score = 0, trecho = '';
-    if (t === termo) score = 100;
-    else if (t.startsWith(termo)) score = 80;
-    else if (t.includes(termo)) score = 60;
-    else if (n.idCurto === termo || (n.hash && n.hash.startsWith(termo))) score = 90;
+    if (i === idx) score = 120;
+    else if (t === termo) score = 100;
+    else if (t.startsWith(termo)) score = 85;
+    else if (t.includes(termo)) score = 70;
+    else if (n.caminho && n.caminho.toLowerCase().replace(/\\/g, '/').includes(termo)) score = 55;
     else {
-      const tx = (n.texto || '');
+      const tx = n.texto || '';
       const k = tx.toLowerCase().indexOf(termo);
-      if (k >= 0) { score = 30; trecho = tx.slice(Math.max(0, k - 50), k + 90).replace(/\s+/g, ' '); }
-      else if ((n.tags || []).some((g) => g.toLowerCase() === termo)) score = 25;
+      if (k >= 0) { score = 40; trecho = tx.slice(Math.max(0, k - 50), k + 90).replace(/\s+/g, ' '); }
+      else if ((n.tags || []).some((g) => g.toLowerCase() === termo)) score = 30;
+      else if (tipoTermo && n.tipo === tipoTermo) score = 20;
     }
-    if (!score) continue;
-    if (n.tipo === 'dia') score -= 10;
-    res.push({ score: score + Math.min(9, n.grau / 20), id: n.id, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte, regiao: n.regiao, trecho: trecho || (n.texto || '').slice(0, 120).replace(/\s+/g, ' ') });
-  }
+    if (!score) return;
+    if (n.tipo === 'dia' && score < 100) score -= 15;
+    res.push({ score: score + Math.min(9, n.grau / 20) + (n.modificado / 1e13), id: n.id, idCurto: n.idCurto, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte,
+      regiao: n.regiao, projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, hash: n.hash || null, modificado: Math.round(n.modificado),
+      trecho: trecho || (n.texto || '').slice(0, 120).replace(/\s+/g, ' ') });
+  });
   res.sort((a, b) => b.score - a.score);
-  return res.slice(0, 50).map(({ score, ...r }) => r);
+  return res.slice(0, Math.max(1, Math.min(500, limite))).map(({ score, ...r }) => r);
+}
+
+// GET /api/listar — forma oficial de listar tudo de um projeto num período
+function listar(sp) {
+  const { slug } = require('./util');
+  const proj = sp.get('projeto') ? slug(sp.get('projeto')) : null;
+  const desde = sp.get('desde') ? visoes.tempo(sp.get('desde')) : 0;
+  const ate = sp.get('ate') ? visoes.tempo(sp.get('ate')) : 0;
+  const tipos = sp.get('tipos') ? new Set(sp.get('tipos').split(',').map((x) => SINONIMOS_TIPO[x.trim()] || x.trim()).filter(Boolean)) : null;
+  const fontes = sp.get('fontes') ? new Set(sp.get('fontes').split(',').map((x) => x.trim()).filter(Boolean)) : null;
+  const limite = Math.max(1, Math.min(5000, parseInt(sp.get('limite'), 10) || 200));
+  const ordem = sp.get('ordem') || 'recente';
+  const lista = G.interno.nos.filter((n) => {
+    if (proj && n.projeto !== proj) return false;
+    if (!tipos && n.tipo === 'dia') return false;
+    if (tipos && !tipos.has(n.tipo)) return false;
+    if (fontes && !fontes.has(n.fonte)) return false;
+    if (desde && n.modificado < desde) return false;
+    if (ate && n.criado > ate) return false;
+    return true;
+  });
+  const cmp = {
+    recente: (a, b) => b.modificado - a.modificado,
+    antigo: (a, b) => a.criado - b.criado,
+    criado: (a, b) => b.criado - a.criado,
+    grau: (a, b) => b.grau - a.grau,
+    titulo: (a, b) => String(a.titulo).localeCompare(String(b.titulo)),
+  }[ordem] || ((a, b) => b.modificado - a.modificado);
+  lista.sort(cmp);
+  return {
+    total: lista.length, limite, ordem,
+    itens: lista.slice(0, limite).map((n) => ({ id: n.id, idCurto: n.idCurto, tipo: n.tipo, fonte: n.fonte, titulo: n.titulo, regiao: n.regiao,
+      projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, criado: Math.round(n.criado), modificado: Math.round(n.modificado), autor: n.autor, hash: n.hash || null })),
+  };
 }
 
 // ---------------------------------------------------------------- HTTP
@@ -498,7 +574,7 @@ async function registrar(req, res) {
   for (const alvo0 of ligar.map((x) => String(x).trim()).filter(Boolean).slice(0, 50)) {
     let n = null;
     if (G) {
-      const i = G.interno.porId.get(alvo0);
+      const i = resolverId(alvo0);
       if (i !== undefined) n = G.interno.nos[i];
       else {
         const t = alvo0.toLowerCase();
@@ -514,10 +590,10 @@ async function registrar(req, res) {
     r = diario.escrever({ projeto: proj, titulo, texto: corpo.texto || '', tags, autor: corpo.autor ? String(corpo.autor).slice(0, 60) : 'CLAUDE CODE', ligacoes });
   } catch (e) { return json(res, 500, { erro: 'falha ao gravar: ' + e.message }); }
   const id = graph.idDe(r.chave);
-  telemetry.emitir({ nivel: 'PULSO', fonte: 'obsidian', msg: `REGISTRO ${proj.toUpperCase()} · ${titulo}`.slice(0, 160), id });
+  telemetry.emitir({ nivel: 'PULSO', fonte: 'diario', msg: `REGISTRO ${proj.toUpperCase()} · ${titulo}`.slice(0, 160), id });
   // reconstrói já, para o id responder na hora (o watch chega depois e não muda nada)
   try { await aoMudar(diario.FONTE, [{ caminho: r.caminho, tipo: 'add' }]); } catch { /* o watch tenta de novo */ }
-  return json(res, 200, { id, caminho: r.caminho, ligados: ligacoes.length, naoEncontrados: naoAchados });
+  return json(res, 200, { id, idCurto: require('./util').sha1(r.chave).slice(0, 6), caminho: r.caminho, ligados: ligacoes.length, naoEncontrados: naoAchados });
 }
 
 const VENDOR = {
@@ -572,22 +648,26 @@ const servidor = http.createServer(async (req, res) => {
     }
     if (p === '/api/registrar' && req.method === 'POST') return registrar(req, res);
     if (p === '/api/resumo') {
-      if (!G) return json(res, 503, { erro: 'carregando' });
+      if (!G) return json(res, 503, { erro: 'carregando', pronto, fase: fase() });
       const dias = Math.max(1, Math.min(365, parseInt(url.searchParams.get('dias'), 10) || 7));
-      const txt = resumo.gerar(G, { projeto: url.searchParams.get('projeto') || null, dias });
+      const opR = { projeto: url.searchParams.get('projeto') || null, dias };
+      if ((url.searchParams.get('formato') || '').toLowerCase() === 'json') return json(res, 200, resumo.dados(G, opR), req);
+      const txt = resumo.gerar(G, opR);
       res.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8', 'cache-control': 'no-store' });
       return res.end(txt);
     }
     if (p.startsWith('/api/no/')) {
       const resto = p.slice('/api/no/'.length).split('/');
       const id = resto[0];
-      if (!G) return json(res, 503, { erro: 'carregando' });
+      if (!G) return json(res, 503, { erro: 'carregando', pronto, fase: fase() });
       if (resto[1] === 'correcao' && req.method === 'POST') {
-        if (!G.interno.porId.has(id)) return json(res, 404, { erro: 'neurônio não encontrado' });
+        const ix = resolverId(id);
+        if (ix === undefined) return json(res, 404, { erro: 'neurônio não encontrado' });
+        const idReal = G.interno.nos[ix].id;
         const corpo = await lerCorpo(req);
         if (!corpo) return json(res, 400, { erro: 'JSON inválido' });
-        const c = classify.salvarCorrecao(id, corpo);
-        telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CORREÇÃO ${id.slice(0, 6)} ${JSON.stringify(corpo).slice(0, 100)}`, id });
+        const c = classify.salvarCorrecao(idReal, corpo);
+        telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CORREÇÃO ${idReal.slice(0, 6)} ${JSON.stringify(corpo).slice(0, 100)}`, id: idReal });
         setImmediate(() => montarGrafo('correção'));
         return json(res, 200, { ok: true, correcao: c });
       }
@@ -596,7 +676,16 @@ const servidor = http.createServer(async (req, res) => {
         return d ? json(res, 200, d, req) : json(res, 404, { erro: 'neurônio não encontrado' });
       }
     }
-    if (p === '/api/busca') return json(res, 200, { resultados: busca(url.searchParams.get('q') || '') }, req);
+    if (p === '/api/busca') {
+      const q = url.searchParams.get('q') || '';
+      const o = { resultados: busca(q, { projeto: url.searchParams.get('projeto'), limite: parseInt(url.searchParams.get('limite'), 10) || 50 }), pronto, fase: fase() };
+      if (q.trim().length < 2) o.aviso = 'use 2 ou mais caracteres';
+      return json(res, 200, o, req);
+    }
+    if (p === '/api/listar') {
+      if (!G) return json(res, 503, { erro: 'carregando', pronto, fase: fase() });
+      return json(res, 200, listar(url.searchParams), req);
+    }
     if (p === '/api/fontes' && req.method === 'GET') return json(res, 200, { fontes: statusFontes(), claude: { ativo: !!config.get().claude.ativo, temChave: !!config.chaveClaude(), modelo: config.get().claude.modelo } });
     if (p === '/api/fontes' && req.method === 'POST') {
       const corpo = await lerCorpo(req);
@@ -624,7 +713,7 @@ const servidor = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, versao, ms });
     }
     if (p === '/api/maquina') return json(res, 200, maquina(true), req);
-    if (p === '/api/status') return json(res, 200, { ...telemetry.status(), pronto, versao });
+    if (p === '/api/status') return json(res, 200, statusCompleto());
     if (p.startsWith('/api/')) return json(res, 404, { erro: 'rota desconhecida' });
 
     // ---- vendor
@@ -653,7 +742,7 @@ wss.on('connection', (ws) => {
   if (va) ws.send(JSON.stringify({ tipo: 'visao', visao: va }));
 });
 telemetry.ouvir((e) => broadcast({ tipo: 'evento', ...e }));
-setInterval(() => broadcast({ tipo: 'status', ...telemetry.status() }), 1000).unref();
+setInterval(() => broadcast({ tipo: 'status', ...telemetry.status(), pronto, fase: fase() }), 1000).unref();
 setInterval(() => broadcast({ tipo: 'maquina', ...maquina(false) }), 2000).unref();
 classify.onAtualizar((r) => {
   if (r.ok) telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CLAUDE CLASSIFICOU ${r.id.slice(0, 6)} → ${r.tags.join(' ')}`, id: r.id });

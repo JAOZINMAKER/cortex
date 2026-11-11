@@ -6,7 +6,7 @@ const config = require('./config');
 
 const ARQ = () => path.join(config.DATA_DIR, 'visoes.json');
 const ARQ_ATUAL = () => path.join(config.DATA_DIR, 'visao-atual.json');
-const TIPOS_FONTE = new Set(['obsidian', 'git', 'claude', 'pasta']);
+const TIPOS_FONTE = new Set(['obsidian', 'git', 'claude', 'pasta', 'diario']);
 const TIPOS_NO = new Set(['nota', 'commit', 'branch', 'worktree', 'sessao', 'arquivo', 'doc', 'dia']);
 
 let estado = null; // { visoes: Visao[], ocultas: string[] }

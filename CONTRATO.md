@@ -77,7 +77,7 @@ No = {
   id: string,                     // estável entre reconstruções: hash curto da chave natural
   idCurto: string,                // 6 chars hex, ex. "a3f91c"
   tipo: "nota" | "commit" | "branch" | "worktree" | "sessao" | "arquivo" | "doc" | "dia",
-  fonte: "obsidian" | "git" | "claude" | "pasta" | "sistema",
+  fonte: "obsidian" | "git" | "claude" | "pasta" | "diario" | "sistema",   // "diario" = registros de sessões (cortex/diario)
   titulo: string,
   regiao: string, subregiao: string,
   pos: [x,y,z],                   // calculada no servidor (layout.js), cérebro de ~1000 unidades de largura
@@ -164,7 +164,7 @@ O resultado é cacheado por caminho. A subregião de uma sessão é o basename o
 Visao = {
   id: string, nome: string,
   projetos?: string[],        // vazio/ausente = todos
-  fontes?: ("obsidian"|"git"|"claude"|"pasta")[],
+  fontes?: ("obsidian"|"git"|"claude"|"pasta"|"diario")[],
   tipos?: No["tipo"][],
   desde?: number, ate?: number,    // epoch ms
   tags?: string[],                  // qualquer uma
@@ -184,7 +184,7 @@ Visao = {
 { tema: string, brilho: number /*0.3..2*/, tamanhoPonto: number, orcamentoRotulos: number /*0..400*/,
   densidadeRotulos: "minima"|"normal"|"maxima", mostrarSinapses: boolean, mostrarTecido: boolean,
   mostrarGrade: boolean, rotacaoAuto: boolean, paineis: { log, status, contadores, minimapa, linhaTempo: boolean },
-  coresFonte?: { obsidian?, git?, claude?, pasta? },  // sobrepõe o tema
+  coresFonte?: { obsidian?, git?, claude?, pasta?, diario? },  // sobrepõe o tema
   som: boolean, visaoInicial: string }
 ```
 
@@ -213,3 +213,11 @@ Saída em português, curta, sem cor quando não for TTY; `--json` para máquina
 
 ### Skill do Claude Code
 `skill/cortex/SKILL.md` (frontmatter `name: cortex`, `description` que dispara com "córtex", "cortex", "segundo cérebro", "registra no córtex", "mostra no córtex", "o que eu fiz em <projeto>"). O conteúdo ensina a sessão a: checar `cortex status`; ler contexto com `cortex resumo <projeto>` antes de trabalhar; buscar com `cortex buscar`; mostrar coisas para o usuário com `cortex mostrar`/`cortex abrir`; registrar o que fez com `cortex registrar` ao terminar uma tarefa importante; descobrir o projeto pela pasta atual (`cortex projetos`). Caminho real da instalação é preenchido pelo instalador (placeholder `{{CORTEX_DIR}}`). O `abrir-cortex.bat` e `cortex skill instalar` instalam/atualizam a skill e o CLI a cada execução (idempotente).
+
+### V3.1: correções do teste cego da skill
+- **Ids:** `/api/no/:id`, `/api/busca`, `ligar` do `/api/registrar` e as correções aceitam id (16 hex), `idCurto` (6 hex) ou hash/sha do git (prefixo de 7+). Toda saída que lista neurônios traz `idCurto`, que é o formato "para citar".
+- **Diário:** os neurônios do diário têm `fonte: "diario"` (tipo continua `nota`) e `autor` = quem registrou. `POST /api/registrar` devolve `{ id, idCurto, caminho, ligados, naoEncontrados }`.
+- **`GET /api/status`** → `{ pronto: boolean, fase: "MONTANDO"|"PRONTO", versao, porta, neuronios, sinapses, contadores|null, cpu, memMB, fila, uptime, eventosSeg }`. A mensagem WS `status` também leva `pronto` e `fase`. Enquanto `fase` = MONTANDO, `/api/busca` responde `pronto: false` e `/api/listar`, `/api/no` e `/api/resumo` respondem 503 `{ erro: "carregando", pronto, fase }`.
+- **`GET /api/busca?q=&projeto=&limite=50`**: termos de 2+ caracteres. Ordem: id/idCurto/hash > título exato > prefixo > substring no título > substring no caminho > texto > tag > nome de tipo ("commit", "sessões"…). Itens: `{ id, idCurto, titulo, tipo, fonte, regiao, projeto, hash, modificado, trecho }`.
+- **`GET /api/listar?projeto=&desde=7d&ate=&tipos=commit,sessao&fontes=&limite=200&ordem=recente|antigo|criado|grau|titulo`** → `{ total, limite, ordem, itens: { id, idCurto, tipo, fonte, titulo, regiao, projeto, criado, modificado, autor, hash }[] }`. Forma oficial de listar tudo de um projeto num período (`desde` filtra por `modificado`, `ate` por `criado`; sem `tipos`, os nós `dia` ficam de fora).
+- **`GET /api/resumo`**: seções sempre presentes (escrevem "nenhum" quando vazias); listas cortadas dizem "N de M" e apontam `cortex listar …`; sessões principais e de agentes contadas e listadas separadamente. `?formato=json` → `{ encontrado, projeto, dias, desde, geradoEm, versao, contadores: { neuronios, notas, commits, linhas, sessoes, agentes, horasIA, ferramentas, diario, mudaramNoPeriodo }, commits, sessoes, agentes, diario, maisConectados, mudados, orfaos, projetos? }`, onde cada lista é `{ total, itens[] }` e cada item tem `id`, `idCurto`, `tipo`, `titulo`, `criado`, `modificado` + campos próprios (commits: `hash` de 7, `mais`, `menos`, `autor`; sessões/agentes: `pasta`, `duracaoMs`, `ferramentas`, `arquivos`, `autor`, `agente?`; maisConectados: `grau`). Projeto inexistente: `{ encontrado: false, projetosConhecidos }`.

@@ -28,7 +28,7 @@ function validar(base, o) {
   if (o.paineis && typeof o.paineis === 'object') for (const k of Object.keys(PADRAO.paineis)) if (typeof o.paineis[k] === 'boolean') a.paineis[k] = o.paineis[k];
   if (o.coresFonte === null) a.coresFonte = {};
   else if (o.coresFonte && typeof o.coresFonte === 'object') {
-    for (const k of ['obsidian', 'git', 'claude', 'pasta']) {
+    for (const k of ['obsidian', 'git', 'claude', 'pasta', 'diario']) {
       if (o.coresFonte[k] === null) delete a.coresFonte[k];
       else if (cor(o.coresFonte[k])) a.coresFonte[k] = cor(o.coresFonte[k]);
     }

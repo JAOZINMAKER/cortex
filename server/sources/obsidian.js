@@ -101,7 +101,7 @@ async function ler(fonte) {
       const idx = notas.length;
       notas.push({
         chave: 'nota:' + normPath(r.abs),
-        tipo: 'nota', fonte: 'obsidian',
+        tipo: 'nota', fonte: projetoNota ? 'diario' : 'obsidian',
         titulo: limpar(fm.title || fm.titulo || nome),
         subregiao: sub,
         criado: criadoFm || Math.min(birth, r.st.mtimeMs),
