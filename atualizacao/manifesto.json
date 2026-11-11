@@ -1,9 +1,9 @@
 {
-  "versao": "2.2.0",
-  "sha256": "64d3ec1882dacf4f714a3dcfc9681ed80ce96351525693216ebf29590dbfa9fd",
-  "bytes": 1192818,
-  "arquivo": "cortex-app-2.2.0.cortexapp",
-  "publicadoEm": "2026-11-11T23:22:39.830Z",
+  "versao": "2.2.1",
+  "sha256": "b9ee4fc8779be9bb3739a8a527ac4f46046b4db447f0ac5e6923f526f2cf2646",
+  "bytes": 1193894,
+  "arquivo": "cortex-app-2.2.1.cortexapp",
+  "publicadoEm": "2026-11-11T23:45:28.412Z",
   "minElectron": "33.4.11",
   "arquivos": 183
 }

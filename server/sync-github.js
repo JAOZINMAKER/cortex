@@ -66,16 +66,54 @@ async function temGit() {
 }
 
 // `git credential fill` para github.com, sem nunca abrir prompt (a não ser que interativo=true)
+let ultimoFill = null;
 async function credencialFill({ interativo = false, env = {}, timeout } = {}) {
   const extra = interativo ? { GCM_INTERACTIVE: 'always', GIT_TERMINAL_PROMPT: '0', GCM_GUI_PROMPT: 'true' } : {};
   let out;
+  const t0 = Date.now();
   try {
-    out = await run(['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', env: { ...extra, ...env }, timeout: timeout || (interativo ? 5 * 60000 : 15000) });
-  } catch (e) { if (e.semGit) throw e; return null; }
+    // o GCM do Windows pode levar vários segundos para abrir na primeira vez: espera até 45 s
+    out = await run(['credential', 'fill'], { input: 'protocol=https\nhost=github.com\n\n', env: { ...extra, ...env }, timeout: timeout || (interativo ? 5 * 60000 : 45000) });
+  } catch (e) { ultimoFill = { ok: false, ms: Date.now() - t0, erro: e.message }; if (e.semGit) throw e; return null; }
+  ultimoFill = { ok: true, ms: Date.now() - t0, temUsuario: /\nusername=|^username=/m.test(out), temSenha: /^password=/m.test(out) };
   const o = {};
   for (const l of out.split(/\r?\n/)) { const i = l.indexOf('='); if (i > 0) o[l.slice(0, i)] = l.slice(i + 1); }
   if (!o.password) return null;
   return { usuario: o.username || null, token: o.password };
+}
+
+// Outras fontes de credencial do GitHub, além do credential helper do git
+function execSimples(cmd, args, timeout = 15000) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout, windowsHide: true, encoding: 'utf8', env: { ...process.env, GH_PROMPT_DISABLED: '1' } }, (err, stdout, stderr) =>
+      resolve({ ok: !err, out: String(stdout || '').trim(), err: limpar(String(stderr || (err && err.message) || '').trim()).slice(-300), code: err ? err.code : 0 }));
+  });
+}
+
+async function credencialAlternativa() {
+  const env = process.env;
+  const tk = env.GH_TOKEN || env.GITHUB_TOKEN;
+  if (tk) return { usuario: null, token: tk, origem: 'variável de ambiente' };
+  const gh = await execSimples('gh', ['auth', 'token', '--hostname', 'github.com']);
+  if (gh.ok && gh.out && !/\s/.test(gh.out)) return { usuario: null, token: gh.out, origem: 'GitHub CLI (gh)' };
+  return null;
+}
+
+// Diagnóstico legível (nunca inclui token): por que este PC não achou a conta?
+let diag = {};
+async function diagnosticar(resultadoFill) {
+  const helpers = await execSimples('git', ['config', '--show-origin', '--get-all', 'credential.helper']);
+  const gcm = await execSimples('git', ['credential-manager', '--version']);
+  const gh = await execSimples('gh', ['--version']);
+  diag = {
+    em: Date.now(),
+    git: await temGit(),
+    credentialHelper: helpers.out ? helpers.out.split(/\r?\n/).map((l) => l.replace(/\s+/g, ' ')) : [],
+    gcm: gcm.ok ? gcm.out.split(/\r?\n/)[0] : null,
+    gh: gh.ok ? gh.out.split(/\r?\n/)[0] : null,
+    fill: resultadoFill || null,
+  };
+  return diag;
 }
 
 async function aprovarCredencial(c, env = {}) {
@@ -108,8 +146,14 @@ async function preparar(cfg) {
       segredo = null;
       st.usuario = null; st.repo = cfg.repoUrl; st.url = cfg.repoUrl; st.privado = null;
     } else {
-      const cred = await credencialFill();
-      if (!cred) { segredo = null; definirEstado('PRECISA_ENTRAR', 'nenhuma conta do GitHub guardada no git deste PC'); return st.estado; }
+      let cred = await credencialFill();
+      if (!cred) cred = await credencialAlternativa();
+      if (!cred) {
+        segredo = null;
+        await diagnosticar(ultimoFill);
+        definirEstado('PRECISA_ENTRAR', 'nenhuma conta do GitHub encontrada no git deste PC (clique em ENTRAR NO GITHUB)');
+        return st.estado;
+      }
       segredo = { usuario: cred.usuario, token: cred.token };
       segredosConhecidos = [cred.token];
       if (!segredo.usuario) {
@@ -255,6 +299,7 @@ function entrar(aoTerminar) {
   const env = { ...process.env, ...IDENT, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'always' };
   const fim = async (ok, msg) => {
     st.entrando = false;
+    st.ultimoLogin = { em: Date.now(), ok, msg: msg ? limpar(msg).slice(-300) : null, saida: limpar(saida).slice(-300) };
     try { await aoTerminar(ok, msg ? limpar(msg) : null); } catch { /* segue */ }
   };
   let saida = '';
@@ -282,7 +327,7 @@ async function fillInterativo() {
 
 function estado() {
   return { usuario: st.usuario, repo: st.repo, estado: st.estado, ...(st.erro ? { erro: st.erro } : {}), privado: st.privado,
-    ultimoFetch: st.ultimoFetch, ultimoPush: st.ultimoPush, entrando: st.entrando, clone: dirClone() };
+    ultimoFetch: st.ultimoFetch, ultimoPush: st.ultimoPush, entrando: st.entrando, clone: dirClone(), diag, ultimoLogin: st.ultimoLogin || null };
 }
 
 function reiniciar() {
