@@ -2,7 +2,7 @@
 // Fonte: cofre do Obsidian. Cada nota = neurônio; [[link]] = sinapse; pasta = subregião.
 const fs = require('fs');
 const path = require('path');
-const { sha1, normPath, contarPalavras } = require('../util');
+const { sha1, normPath, contarPalavras, slug } = require('../util');
 
 const IGNORAR_DIR = new Set(['.obsidian', '.trash', 'node_modules', '.git']);
 
@@ -99,8 +99,11 @@ async function ler(fonte) {
         sub = 'DIÁRIO';
       }
       const idx = notas.length;
+      // chave natural sem caminho absoluto (V5: o mesmo id em qualquer PC): projeto + pasta do cofre + caminho relativo
+      const chave = fonte.projetoPorPasta ? 'diario:' + rel.toLowerCase() : `nota:${slug(fonte.projeto || path.basename(raiz))}:${path.basename(raiz).toLowerCase()}/${rel.toLowerCase()}`;
       notas.push({
-        chave: 'nota:' + normPath(r.abs),
+        chave,
+        chaveAntiga: 'nota:' + normPath(r.abs),
         tipo: 'nota', fonte: projetoNota ? 'diario' : 'obsidian',
         titulo: limpar(fm.title || fm.titulo || nome),
         subregiao: sub,
@@ -199,4 +202,4 @@ function lerCorpo(abs) {
   } catch { return { fm: {}, corpo: '' }; }
 }
 
-module.exports = { ler, lerCorpo };
+module.exports = { ler, lerCorpo, separarFrontmatter: parseFrontmatter };

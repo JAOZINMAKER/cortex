@@ -70,6 +70,7 @@ function normalizar(o) {
     else { const t = tempo(o[k]); if (t) v[k] = Math.round(t); }
   }
   const tags = lista(o.tags); if (tags) v.tags = tags.map((t) => t.toUpperCase());
+  const maquinas = lista(o.maquinas); if (maquinas) v.maquinas = maquinas;
   if (o.grauMin !== undefined && o.grauMin !== '') v.grauMin = Math.max(0, parseInt(o.grauMin, 10) || 0);
   if (o.texto) v.texto = String(o.texto).slice(0, 200);
   if (o.vizinhos !== undefined && o.vizinhos !== '') v.vizinhos = Math.max(0, Math.min(2, parseInt(o.vizinhos, 10) || 0));
@@ -78,7 +79,7 @@ function normalizar(o) {
 }
 
 function temFiltro(v) {
-  return !!v && ['projetos', 'fontes', 'tipos', 'desde', 'ate', 'tags', 'grauMin', 'texto', 'vizinhos'].some((k) => v[k] !== undefined && !(k === 'vizinhos' && !v[k]) && !(k === 'grauMin' && !v[k]));
+  return !!v && ['projetos', 'fontes', 'tipos', 'desde', 'ate', 'tags', 'grauMin', 'texto', 'vizinhos', 'maquinas'].some((k) => v[k] !== undefined && !(k === 'vizinhos' && !v[k]) && !(k === 'grauMin' && !v[k]));
 }
 
 function todas() { return carregar().visoes; }

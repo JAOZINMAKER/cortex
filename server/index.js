@@ -34,6 +34,7 @@ const ajustes = require('./ajustes');
 const diario = require('./diario');
 const resumo = require('./resumo');
 const v4 = require('./rotas-v4');
+const sync = require('./sync');
 const { sha1, normPath, baseName, existe, ehTexto, dayKey } = require('./util');
 const fontes = {
   obsidian: require('./sources/obsidian'),
@@ -71,6 +72,9 @@ function log(...a) { console.log('[CÓRTEX]', ...a); }
 function todasFontes() { return [...config.get().fontes, diario.FONTE]; }
 
 function statusFontes() {
+  return statusLocais().concat(sync.statusRemotos());
+}
+function statusLocais() {
   return todasFontes().map((f) => {
     const p = parciais.get(f.id);
     const o = { id: f.id, tipo: f.tipo, caminho: f.caminho, projeto: f.projeto || null, status: p ? p.status : 'LENDO', itens: p ? p.itens : 0 };
@@ -119,11 +123,11 @@ function assinaturaDe(pub) {
 
 function montarGrafo(motivo) {
   if (!servidor) return false; // parado no meio de uma leitura
-  const lista = todasFontes().map((f) => parciais.get(f.id)).filter(Boolean).map((p) => ({ fonte: p.fonte, r: p.r }));
+  const lista = todasFontes().map((f) => parciais.get(f.id)).filter(Boolean).map((p) => ({ fonte: p.fonte, r: p.r })).concat(sync.parciaisRemotas());
   const anterior = G;
   const cg = config.get();
   const novo = graph.montar(lista, statusFontes(), {
-    descobrir: (c) => projeto.descobrir(c, cg), ignorar: cg.ignorar,
+    descobrir: (c) => projeto.descobrir(c, cg), ignorar: cg.ignorar, maquinaNome: sync.maquina().nome, log,
     profundidadeIdade: cg.cerebro.profundidadeIdade, espacamentoLobos: cg.cerebro.espacamentoLobos,
   });
   cacheRecortes.clear();
@@ -140,6 +144,7 @@ function montarGrafo(motivo) {
   telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `GRAFO V${versao} · ${c.neuronios} NEURÔNIOS · ${c.sinapses} SINAPSES · ${novo.interno.msBuild} MS` });
   if (anterior) diffEventos(anterior, novo);
   if (estruturaMudou) broadcast({ tipo: 'grafo', versao });
+  if (pronto) sync.agendarPublicacao();
   return estruturaMudou;
 }
 
@@ -180,6 +185,7 @@ async function construirTudo(motivo) {
   try {
     const t0 = Date.now();
     await Promise.all(todasFontes().map((f) => lerFonte(f)));
+    try { await sync.lerRemotos(); } catch (e) { log('sync: leitura falhou:', e.message); }
     montarGrafo(motivo);
     for (const p of parciais.values()) {
       if (!p.r) continue;
@@ -325,7 +331,13 @@ async function detalheNo(id) {
   const conteudo = { formato: 'texto', corpo: '' };
   const np = n.caminho ? normPath(n.caminho) : null;
   const histArq = np ? G.interno.historicoArquivos.get(np) : null;
-  if (n.tipo === 'nota') {
+  if ((n.tipo === 'nota' || n.tipo === 'doc') && n._conteudo !== undefined) {
+    // V5: conteúdo que veio no pacote de outra máquina (nó remoto ou versão remota mais nova)
+    const corpoR = n.tipo === 'nota' ? fontes.obsidian.separarFrontmatter(n._conteudo).corpo : n._conteudo;
+    conteudo.formato = n.tipo === 'nota' || /\.md$/i.test(n.caminho || '') ? 'markdown' : 'texto';
+    conteudo.corpo = corpoR;
+    conteudo.extra = { ...(n.extra || {}), deMaquina: n._conteudoDe || n.maquina };
+  } else if (n.tipo === 'nota') {
     const { corpo } = fontes.obsidian.lerCorpo(n.caminho);
     conteudo.formato = 'markdown';
     conteudo.corpo = corpo;
@@ -383,6 +395,8 @@ async function detalheNo(id) {
   const maq = classify.interpretacao(n.id) || { tags: n.tags, por: 'regras', em: 0 };
   return {
     no: publicoDe(i), tagsAutor: n.tagsAutor || [], entrada, saida, vizinhos, historico: historico.slice(0, 300), conteudo,
+    origem: { maquina: n.maquina || null, maquinas: n.maquinas || [], remoto: !n._origemLocal && n.tipo !== 'dia', conteudoDe: n._conteudoDe || (n._origemLocal ? null : n.maquina || null),
+      existeAqui: !!(n.caminho && existe(n.caminho)) },
     maquina: { tags: maq.tags || [], regiao: n.regiao, cluster: n.cluster, por: maq.por || 'regras', em: maq.em || 0, ...(maq.nota ? { nota: maq.nota } : {}) },
     correcao: classify.correcao(n.id),
   };
@@ -445,7 +459,7 @@ function busca(q, { projeto: proj, limite = 50 } = {}) {
     if (n.tipo === 'dia' && score < 100) score -= 15;
     res.push({ score: score + Math.min(9, n.grau / 20) + (n.modificado / 1e13), id: n.id, idCurto: n.idCurto, titulo: n.titulo, tipo: n.tipo, fonte: n.fonte,
       regiao: n.regiao, projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, hash: n.hash || null, modificado: Math.round(n.modificado),
-      ...(n.tags && n.tags.length ? { tags: n.tags } : {}),
+      ...(n.tags && n.tags.length ? { tags: n.tags } : {}), maquinas: n.maquinas || [], ...(!n._origemLocal && n.tipo !== 'dia' ? { remoto: true } : {}),
       ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}), ...(n.tagsAutor && n.tagsAutor.length ? { tagsAutor: n.tagsAutor } : {}),
       trecho: trecho || (n.texto || '').slice(0, 120).replace(/\s+/g, ' ') });
   });
@@ -485,7 +499,7 @@ function listar(sp) {
     itens: lista.slice(0, limite).map((n) => ({ id: n.id, idCurto: n.idCurto, tipo: n.tipo, fonte: n.fonte, titulo: n.titulo, regiao: n.regiao,
       projeto: G.interno.nomeProj.get(n.projeto) || n.projeto, criado: Math.round(n.criado), modificado: Math.round(n.modificado), autor: n.autor, hash: n.hash || null,
       ...(n.tags && n.tags.length ? { tags: n.tags } : {}), ...(n.tagsAutor && n.tagsAutor.length ? { tagsAutor: n.tagsAutor } : {}),
-      ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}) })),
+      ...(n.worktrees && n.worktrees.length ? { worktrees: n.worktrees } : {}), maquinas: n.maquinas || [], ...(!n._origemLocal ? { remoto: true } : {}) })),
   };
 }
 
@@ -543,7 +557,7 @@ function listaProjetos() {
     let p = m.get(n.projeto);
     if (!p) {
       p = { nome: G.interno.nomeProj.get(n.projeto) || n.projeto, slug: n.projeto, regiao: 'r_' + n.projeto, serial: null, neuronios: 0, notas: 0, commits: 0, linhas: 0,
-        sessoes: 0, agentes: 0, horasIA: 0, ferramentas: 0, diario: 0, ultimoPulso: 0, atividade30d: new Array(30).fill(0), _subs: new Set(), _ms: 0 };
+        sessoes: 0, agentes: 0, horasIA: 0, ferramentas: 0, diario: 0, ultimoPulso: 0, atividade30d: new Array(30).fill(0), _subs: new Set(), _ms: 0, _maqs: new Set() };
       m.set(n.projeto, p);
     }
     p.neuronios++;
@@ -558,15 +572,16 @@ function listaProjetos() {
     marcar(p, n.criado);
     if (dk(n.modificado) !== dk(n.criado)) marcar(p, n.modificado);
     if (n.subregiao) p._subs.add(n.subregiao);
+    for (const mq of n.maquinas || []) p._maqs.add(mq);
   }
   const caminhos = new Map();
   for (const f of config.get().fontes) if (f.projeto) { const k = slug(f.projeto); if (!caminhos.has(k)) caminhos.set(k, []); caminhos.get(k).push(f.caminho); }
   const seriais = new Map(G.publico.regioes.map((r) => [r.id, r.serial]));
   return [...m.entries()].map(([k, p]) => {
-    const { _subs, _ms, ...resto } = p;
+    const { _subs, _ms, _maqs, ...resto } = p;
     const pr = prefs[k] || {};
     return { ...resto, serial: seriais.get(p.regiao) || null, horasIA: Math.round(_ms / 360000) / 10, subregioes: [..._subs].sort(),
-      caminhos: caminhos.get(k) || [], favorito: !!pr.favorito, oculto: !!pr.oculto };
+      caminhos: caminhos.get(k) || [], favorito: !!pr.favorito, oculto: !!pr.oculto, maquinas: [..._maqs] };
   }).sort((a, b) => (b.favorito - a.favorito) || (b.ultimoPulso - a.ultimoPulso));
 }
 
@@ -579,7 +594,7 @@ function visaoDaQuery(sp) {
     return { visao: v };
   }
   const o = {};
-  for (const k of ['projetos', 'fontes', 'tipos', 'desde', 'ate', 'tags', 'grauMin', 'texto', 'vizinhos']) if (sp.has(k)) o[k] = sp.get(k);
+  for (const k of ['projetos', 'fontes', 'tipos', 'desde', 'ate', 'tags', 'grauMin', 'texto', 'vizinhos', 'maquinas']) if (sp.has(k)) o[k] = sp.get(k);
   const v = visoes.normalizar(o);
   return { visao: visoes.temFiltro(v) ? v : null };
 }
@@ -874,6 +889,18 @@ async function iniciar(op = {}) {
   log(`organização com Claude: ${classify.claudeLigado() ? 'LIGADA' : 'desligada (regras locais)'}`);
   telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CÓRTEX ONLINE · ${config.get().fontes.length} FONTES · PORTA ${PORTA}` });
 
+  try {
+    await sync.iniciar({
+      log, telemetry, broadcast, obterGrafo: () => (pronto ? G : null),
+      versaoApp: (() => { try { return require(path.join(config.ROOT, 'package.json')).version; } catch { return null; } })(),
+      aoMudarRemotos: async (motivo) => {
+        if (!pronto || !servidor) return;
+        filaReconstrucao++;
+        try { montarGrafo(motivo); } finally { filaReconstrucao--; }
+      },
+    });
+  } catch (e) { log('sync: não iniciou:', e.message); }
+
   // monta o grafo em segundo plano: a janela abre já, com fase MONTANDO
   (async () => {
     try {
@@ -882,6 +909,7 @@ async function iniciar(op = {}) {
       if (!servidor) return;
       emitirHistorico();
       pronto = true;
+      sync.agendarPublicacao();
       telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `BOOT COMPLETO EM ${ms} MS` });
       vigiarTudo();
       log('vigiando fontes');
@@ -894,6 +922,7 @@ async function iniciar(op = {}) {
 }
 
 async function pararInterno() {
+  try { await sync.parar(); } catch { /* fecha mesmo assim */ } // publica uma última vez
   watch.pararTodos();
   while (desligar.length) { try { desligar.pop()(); } catch { /* segue */ } }
   if (wss) { for (const c of wss.clients) { try { c.terminate(); } catch { /* já caiu */ } } await new Promise((r) => wss.close(() => r())); }

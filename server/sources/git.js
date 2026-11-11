@@ -75,7 +75,7 @@ async function ler(fonte) {
   try { comum = path.resolve(repo, (await git(repo, ['rev-parse', '--git-common-dir'])).trim()); } catch { /* usa o repo */ }
   const chaveRepo = normPath(comum);
   // commit = mesmo sha no mesmo projeto (clones separados do mesmo projeto também não duplicam)
-  const chaveProj = fonte.projeto ? 'p:' + require('../util').slug(fonte.projeto) : chaveRepo;
+  const chaveProj = 'p:' + require('../util').slug(fonte.projeto || path.basename(repo));
   const chaveCommit = (sha) => 'commit:' + chaveProj + ':' + sha;
   const shaSet = new Set(commits.map((c) => c.sha));
 
@@ -109,7 +109,9 @@ async function ler(fonte) {
 
   // um nó por caminho relativo no projeto; caminho = checkout real onde o arquivo existe
   const caminhosDe = new Map(); // rel -> [abs existentes]
-  const chaveArquivo = (rel) => 'arquivo:' + chaveProj + ':' + (WIN_CASE ? rel.toLowerCase() : rel);
+  // V5: minúsculas sempre (o mesmo arquivo no Windows e no Linux é o mesmo neurônio)
+  const chaveArquivo = (rel) => 'arquivo:' + chaveProj + ':' + rel.toLowerCase();
+  const chaveArquivoAntiga = (rel) => 'arquivo:' + chaveProj + ':' + (WIN_CASE ? rel.toLowerCase() : rel);
   for (const [rel, s] of stats) {
     if (!escolhidos.has(rel)) continue;
     const onde = [];
@@ -126,7 +128,7 @@ async function ler(fonte) {
     if (!onde.length) titulo = `${base} @ ${nomeRef(s.ultimaRef) || 'histórico'}`; // só existe numa branch sem worktree (ou foi apagado)
     else if (onde[0] !== principal) titulo = `${base} · ${nomesWt[0]}`;
     nos.push({
-      chave: chaveArquivo(rel), tipo: 'arquivo', fonte: 'git',
+      chave: chaveArquivo(rel), chaveAntiga: chaveArquivoAntiga(rel), tipo: 'arquivo', fonte: 'git',
       titulo, subregiao: rel.includes('/') ? rel.split('/')[0] : 'raiz',
       criado: s.first, modificado: s.last, palavras: s.linhas, autor: 'GIT',
       hash: '', caminho: abs[0] || null, texto: rel.replace(/[\/._-]+/g, ' ') + ' ' + nomesWt.join(' '),
@@ -174,9 +176,10 @@ async function ler(fonte) {
     for (const l of refs.split('\n')) {
       const [ref, obj, cd, curto] = l.split(SEP);
       if (!ref || ref.endsWith('/HEAD')) continue;
-      const k = 'branch:' + chaveRepo + ':' + ref;
+      const k = 'branch:' + chaveProj + ':' + nomeDono.toLowerCase() + ':' + ref;
+      const kAntiga = 'branch:' + chaveRepo + ':' + ref;
       const t = (parseInt(cd, 10) || 0) * 1000;
-      nos.push({ chave: k, tipo: 'branch', fonte: 'git', titulo: curto + sufixoClone, subregiao: 'BRANCHES', criado: t, modificado: t,
+      nos.push({ chave: k, chaveAntiga: kAntiga, tipo: 'branch', fonte: 'git', titulo: curto + sufixoClone, subregiao: 'BRANCHES', criado: t, modificado: t,
         palavras: 0, autor: 'GIT', hash: (obj || '').slice(0, 12), caminho: repo, texto: 'branch ' + curto, extra: { ref, sha: obj } });
       if (shaSet.has(obj)) links.push({ de: k, para: chaveCommit(obj), tipo: 'BRANCH', peso: 1 });
     }
@@ -184,10 +187,10 @@ async function ler(fonte) {
 
   // worktrees
   for (const w of worktrees) {
-    const k = 'worktree:' + normPath(w.caminho);
+    const k = 'worktree:' + chaveProj + ':' + path.basename(w.caminho).toLowerCase();
     const c = commits.find((x) => x.sha === w.head);
     const t = c ? c.ct : Date.now();
-    nos.push({ chave: k, tipo: 'worktree', fonte: 'git', titulo: path.basename(w.caminho) + (w.branch ? ' @ ' + nomeRef(w.branch) : ''),
+    nos.push({ chave: k, chaveAntiga: 'worktree:' + normPath(w.caminho), tipo: 'worktree', fonte: 'git', titulo: path.basename(w.caminho) + (w.branch ? ' @ ' + nomeRef(w.branch) : ''),
       subregiao: 'BRANCHES', criado: t, modificado: t, palavras: 0, autor: 'GIT', hash: (w.head || '').slice(0, 12), caminho: w.caminho,
       // texto só com nomes relativos: o caminho absoluto (ex.: /home/x/testdata) viraria tag de ruído
       texto: 'worktree ' + path.basename(w.caminho) + (w.branch ? ' ' + nomeRef(w.branch) : ''), extra: { branch: w.branch, head: w.head } });

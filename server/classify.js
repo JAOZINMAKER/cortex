@@ -218,6 +218,24 @@ function salvarCorrecao(id, { tags, regiao }) {
 
 function onAtualizar(fn) { aoAtualizar = fn; }
 
+// V5: ids passaram a usar a chave natural sem caminho absoluto. Move correções e interpretação dos ids antigos
+// para os novos, uma vez só (marca em data/.ids-v5). mapa: Map idAntigo -> idNovo
+function migrarIds(mapa) {
+  const marca = path.join(config.DATA_DIR, '.ids-v5');
+  if (require('fs').existsSync(marca)) return null;
+  carregar();
+  let nc = 0, nm = 0;
+  for (const [antigo, novo] of mapa) {
+    if (antigo === novo) continue;
+    if (correcoes[antigo] && !correcoes[novo]) { correcoes[novo] = correcoes[antigo]; delete correcoes[antigo]; nc++; }
+    if (maquina[antigo] && !maquina[novo]) { maquina[novo] = maquina[antigo]; delete maquina[antigo]; nm++; }
+  }
+  if (nc) writeJSON(ARQ_COR(), correcoes);
+  if (nm) salvarMaquina();
+  writeJSON(marca, { em: Date.now(), correcoes: nc, interpretacoes: nm });
+  return { correcoes: nc, interpretacoes: nm };
+}
+
 // apaga a interpretação da máquina (maquina.json + cache em memória). As correções do usuário ficam.
 function limparCache() {
   cacheTexto.clear();
@@ -226,4 +244,4 @@ function limparCache() {
   try { require('fs').rmSync(ARQ_MAQ(), { force: true }); } catch { /* já não existe */ }
 }
 
-module.exports = { limparCache, classificar, interpretacao, correcao, todasCorrecoes, salvarCorrecao, tamanhoFila, onAtualizar, claudeLigado };
+module.exports = { migrarIds, limparCache, classificar, interpretacao, correcao, todasCorrecoes, salvarCorrecao, tamanhoFila, onAtualizar, claudeLigado };

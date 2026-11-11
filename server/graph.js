@@ -5,10 +5,25 @@ const { sha1, normPath, baseName, dayKey, slug } = require('./util');
 const layout = require('./layout');
 const classify = require('./classify');
 
-const ORDEM_TIPO = { obsidian: 0, pasta: 1, git: 2, claude: 3 };
+const ORDEM_TIPO = { obsidian: 0, pasta: 1, git: 2, claude: 3, remoto: 4 }; // remotos por último: o local é a base
 const DIA_MS = 86400000;
 
 function idDe(chave) { return sha1(chave).slice(0, 16); }
+
+// V5: o mesmo neurônio em várias máquinas. Notas/docs: vale o conteúdo do mais recente (a versão local fica guardada
+// em _local para o pacote nunca reexportar o que veio de fora)
+function juntarMaquinas(v, n) {
+  v.maquinas = [...new Set([...(v.maquinas || [v.maquina]), ...(n.maquinas || [n.maquina])])].filter(Boolean);
+  if (n._origemLocal) v._origemLocal = true;
+  if ((v.tipo === 'nota' || v.tipo === 'doc') && n.modificado > v.modificado) {
+    if (v._origemLocal && !v._local) v._local = { titulo: v.titulo, modificado: v.modificado, palavras: v.palavras, hash: v.hash, texto: v.texto, tagsAutor: v.tagsAutor, extra: v.extra };
+    for (const k of ['titulo', 'modificado', 'palavras', 'hash', 'texto', 'tagsAutor']) if (n[k] !== undefined) v[k] = n[k];
+    if (n._conteudo !== undefined) { v._conteudo = n._conteudo; v._conteudoDe = n.maquina; }
+  } else if (v.tipo === 'sessao' && n.modificado > v.modificado) {
+    v.modificado = n.modificado;
+  }
+  if (n.criado && n.criado < v.criado) v.criado = n.criado;
+}
 
 function juntarArquivo(v, n, porCaminho) {
   const wts = new Set([...(v.worktrees || []), ...(n.worktrees || [])]);
@@ -19,7 +34,7 @@ function juntarArquivo(v, n, porCaminho) {
   if (!v.caminho && n.caminho) { v.caminho = n.caminho; v.titulo = n.titulo; }
   if (n.criado < v.criado) v.criado = n.criado;
   if (n.modificado > v.modificado) v.modificado = n.modificado;
-  for (const c of n.extra.candidatos || []) { const np = normPath(c); if (!porCaminho.has(np)) porCaminho.set(np, v.chave); }
+  if (porCaminho) for (const c of n.extra.candidatos || []) { const np = normPath(c); if (!porCaminho.has(np)) porCaminho.set(np, v.chave); }
 }
 
 // parciais: [{ fonte: cfg, r: resultado }]
@@ -65,8 +80,10 @@ function montar(parciais, statusFontes, opcoes = {}) {
   const prioridade = { nota: 3, arquivo: 2, doc: 1 };
   const notaDocPorCaminho = new Map(); // normPath -> chave de nota/doc
 
+  const eu = opcoes.maquinaNome || 'ESTE PC';
   for (const p of ps) {
     const projetoFonte = p.fonte.projeto;
+    const remota = p.fonte.tipo === 'remoto';
     // detecção de "checkout em massa": muitas notas com o mesmo mtime
     let janelaCheckout = null;
     if (p.fonte.tipo === 'obsidian' && p.r.nos.length > 20) {
@@ -78,19 +95,24 @@ function montar(parciais, statusFontes, opcoes = {}) {
     for (const n0 of p.r.nos) {
       const n = n0;
       if (ignorado(n)) continue;
-      if (n.tipo === 'doc') {
+      // V5: origem e máquina. Restaura a versão local se uma rodada anterior trocou o conteúdo por um remoto mais novo
+      if (n._local) { Object.assign(n, n._local); delete n._local; delete n._conteudo; delete n._conteudoDe; }
+      if (remota) { n._origemLocal = false; n.maquinas = [n.maquina]; }
+      else { n._origemLocal = true; n.maquina = eu; n.maquinas = [eu]; }
+      if (n.tipo === 'doc' && !remota) {
         const ja = porCaminho.get(normPath(n.caminho));
         if (ja) { alias.set(n.chave, ja); continue; }
       }
-      if (n.tipo === 'nota' || n.tipo === 'doc') notaDocPorCaminho.set(normPath(n.caminho), n.chave);
+      if ((n.tipo === 'nota' || n.tipo === 'doc') && !remota) notaDocPorCaminho.set(normPath(n.caminho), n.chave);
       if (porChave.has(n.chave)) {
-        // mesmo arquivo visto por outra fonte do projeto (worktree, clone): junta os checkouts num nó só
+        // mesmo neurônio visto por outra fonte (worktree, clone) ou outra máquina: um nó só
         const v = nos[porChave.get(n.chave)];
-        if (v.tipo === 'arquivo' && n.tipo === 'arquivo') juntarArquivo(v, n, porCaminho);
+        if (v.tipo === 'arquivo' && n.tipo === 'arquivo') juntarArquivo(v, n, remota ? null : porCaminho);
+        juntarMaquinas(v, n);
         continue;
       }
       let projeto = n.projetoNota || projetoFonte;
-      if (n.tipo === 'sessao') {
+      if (n.tipo === 'sessao' && !remota) {
         if (opcoes.descobrir && n.cwd) {
           const d = opcoes.descobrir(n.cwd);
           projeto = d.projeto;
@@ -109,7 +131,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
       }
       porChave.set(n.chave, nos.length);
       nos.push(n);
-      if (prioridade[n.tipo]) {
+      if (prioridade[n.tipo] && !remota) { // caminhos de outra máquina não resolvem nada aqui
         const cams = n.tipo === 'arquivo' && n.extra && n.extra.candidatos ? n.extra.candidatos : [n.caminho];
         for (const c of cams) {
           if (!c) continue;
@@ -188,15 +210,18 @@ function montar(parciais, statusFontes, opcoes = {}) {
 
   // sinapses
   const sinapses = [];
+  const sinapsesLocais = []; // índices das sinapses que vieram das fontes locais (o pacote de sync só leva estas)
   const vistos = new Set();
-  function add(a, b, tipo, peso) {
+  function add(a, b, tipo, peso, local) {
     if (a < 0 || b < 0 || a === b) return;
     const k = a * 4194304 + b + ':' + tipo;
     if (vistos.has(k)) return;
     vistos.add(k);
+    if (local) sinapsesLocais.push(sinapses.length);
     sinapses.push({ a, b, tipo, peso: Math.round(peso * 100) / 100 });
   }
   for (const p of ps) {
+    const local = p.fonte.tipo !== 'remoto';
     for (const l of p.r.links) {
       const a = idxDe(l.de);
       let b;
@@ -206,7 +231,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
         const ch = porCaminho.get(normPath(l.para.caminho));
         b = ch ? idxDe(ch) : -1;
       }
-      add(a, b, l.tipo, l.peso);
+      add(a, b, l.tipo, l.peso, local);
     }
   }
   // SEQ entre sessões consecutivas do mesmo projeto
@@ -269,6 +294,12 @@ function montar(parciais, statusFontes, opcoes = {}) {
   }
 
   // organização automática (tags da máquina)
+  // V5: ids mudaram para a chave natural sem caminho absoluto; correções e interpretações migram uma vez
+  const mapaIds = new Map();
+  for (const n of nosOrd) if (n.chaveAntiga) mapaIds.set(idDe(n.chaveAntiga), n.id);
+  const mig = classify.migrarIds(mapaIds);
+  if (mig && (mig.correcoes || mig.interpretacoes) && opcoes.log) opcoes.log(`ids V5: ${mig.correcoes} correções e ${mig.interpretacoes} interpretações migradas para os ids novos`);
+
   classify.classificar(nosOrd);
 
   const opLayout = { profundidadeIdade: opcoes.profundidadeIdade, espacamentoLobos: opcoes.espacamentoLobos };
@@ -290,7 +321,7 @@ function montar(parciais, statusFontes, opcoes = {}) {
 
   return {
     publico: { versao: 0, geradoEm: Date.now(), regioes: fim.regioes, nos: fim.publicos, sinapses, dias, contadores: fim.contadores, fontes: statusFontes },
-    interno: { nos: nosOrd, porId, adj, historicoArquivos, eventosHist, nomeProj, opLayout, msBuild: Date.now() - t0 },
+    interno: { nos: nosOrd, porId, adj, historicoArquivos, eventosHist, nomeProj, opLayout, sinapsesLocais, msBuild: Date.now() - t0 },
   };
 }
 
@@ -357,6 +388,9 @@ function finalizar(nosOrd, sinapses, nomeRegiao, opcoesLayout = {}, extras = nul
     if (n.fora) o.fora = true;
     if (n.worktrees && n.worktrees.length) o.worktrees = n.worktrees;
     if (n.tagsAutor && n.tagsAutor.length) o.tagsAutor = n.tagsAutor;
+    o.maquina = n.maquina || null;
+    o.maquinas = n.maquinas || (n.maquina ? [n.maquina] : []);
+    if (!n._origemLocal && n.tipo !== 'dia') o.remoto = true;
     return o;
   });
   return { regioes: regioesArr, contadores: cont, publicos, info };
@@ -375,6 +409,7 @@ function recortar(G, visao) {
   const tipos = v.tipos && v.tipos.length ? new Set(v.tipos) : null;
   const tags = v.tags && v.tags.length ? new Set(v.tags.map((t) => String(t).toUpperCase())) : null;
   const texto = v.texto ? String(v.texto).toLowerCase() : '';
+  const maqs = v.maquinas && v.maquinas.length ? new Set(v.maquinas.map((x) => String(x).toLowerCase())) : null;
   const desde = Number(v.desde) || 0, ate = Number(v.ate) || 0, grauMin = Number(v.grauMin) || 0;
   const sel = new Uint8Array(N); // 1 = no filtro, 2 = vizinho de fora, 3 = dia
   for (let i = 0; i < N; i++) {
@@ -387,6 +422,7 @@ function recortar(G, visao) {
     if (ate && n.criado > ate) continue;
     if (grauMin && n.grau < grauMin) continue;
     if (tags && !(n.tags || []).some((t) => tags.has(String(t).toUpperCase()))) continue;
+    if (maqs && !(n.maquinas || []).some((m) => maqs.has(String(m).toLowerCase()))) continue;
     if (texto && !String(n.titulo || '').toLowerCase().includes(texto) && !String(n.caminho || '').toLowerCase().includes(texto)) continue;
     sel[i] = 1;
   }

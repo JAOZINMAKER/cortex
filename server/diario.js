@@ -53,7 +53,7 @@ function escrever({ projeto, titulo, texto, tags, autor, ligacoes }) {
   let arq;
   for (let i = 1; i < 1000; i++) {
     arq = path.join(dir, i === 1 ? base + '.md' : `${base}-${i}.md`);
-    try { fs.writeFileSync(arq, conteudo, { encoding: 'utf8', flag: 'wx' }); return { caminho: arq, chave: 'nota:' + normPath(arq) }; }
+    try { fs.writeFileSync(arq, conteudo, { encoding: 'utf8', flag: 'wx' }); return { caminho: arq, chave: 'diario:' + (slug(projeto) + '/' + path.basename(arq)).toLowerCase() }; }
     catch (e) { if (e.code !== 'EEXIST') throw e; }
   }
   throw new Error('nomes esgotados para ' + base);

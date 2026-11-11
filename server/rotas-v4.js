@@ -10,6 +10,7 @@ const diario = require('./diario');
 const graph = require('./graph');
 const skillsInst = require('./skills-instalar');
 const executores = require('./skills');
+const sync = require('./sync');
 
 const ARQ_TEMAS = () => path.join(config.DATA_DIR, 'temas.json');
 const ARQ_PROJ = () => path.join(config.DATA_DIR, 'projetos.json');
@@ -49,6 +50,7 @@ function configPublica() {
     desempenho: { ...c.desempenho },
     notificacoes: { ...c.notificacoes },
     fontes: { apelidos: { ...c.apelidos }, ignorar: [...c.ignorar] },
+    sync: (() => { const s = sync.cfg(); return { ativo: !!s.ativo, pasta: s.pasta, nome: sync.maquina().nome, compartilhar: s.compartilhar, intervaloMin: s.intervaloMin }; })(),
     caminhos: { appDir: config.APP_DIR, dadosDir: config.DADOS_DIR, configPath: config.CONFIG_PATH, dataDir: config.DATA_DIR, diarioDir: config.DIARIO_DIR },
   };
 }
@@ -59,6 +61,11 @@ function aplicarConfig(corpo) {
   const novo = {};
   for (const [secao, campos] of Object.entries(corpo || {})) {
     if (secao === 'caminhos') continue;
+    if (secao === 'sync') { // validada aqui, aplicada por server/sync.js (depois do resto)
+      if (!campos || typeof campos !== 'object') { erros.push({ campo: 'sync', erro: 'precisa ser objeto' }); continue; }
+      erros.push(...sync.validar(campos).erros);
+      continue;
+    }
     if (secao === 'fontes') {
       if (!campos || typeof campos !== 'object') { erros.push({ campo: 'fontes', erro: 'precisa ser objeto' }); continue; }
       if (campos.apelidos !== undefined) {
@@ -234,6 +241,11 @@ async function tratar(p, req, res, url, ctx) {
     if (!corpo) { json(res, 400, { erro: 'JSON inválido' }); return true; }
     const r = aplicarConfig(corpo);
     if (r.erros) { json(res, 400, { erro: 'valores inválidos', erros: r.erros }); return true; }
+    if (corpo.sync) {
+      const rs = await sync.definir(corpo.sync);
+      if (rs.erros) { json(res, 400, { erro: 'valores inválidos', erros: rs.erros }); return true; }
+      r.mudancas.push(...rs.mudancas);
+    }
     if (r.mudancas.length) {
       ctx.telemetry.emitir({ nivel: 'INFO', fonte: 'sistema', msg: `CONFIG ${r.mudancas.join(' ')}${r.precisaReconstruir ? ' · PRECISA RECONSTRUIR' : ''}` });
       ctx.broadcast({ tipo: 'config', config: configPublica(), mudancas: r.mudancas });
@@ -258,6 +270,37 @@ async function tratar(p, req, res, url, ctx) {
     const corpo = (await lerCorpo(req)) || {};
     const k = typeof corpo.chave === 'string' && corpo.chave.trim() ? corpo.chave.trim() : config.chaveClaude();
     json(res, 200, await testarChave(k, corpo.modelo || config.get().claude.modelo));
+    return true;
+  }
+
+  // ---- sincronização entre PCs (V5)
+  if (p === '/api/sync' && m === 'GET') { json(res, 200, sync.estado()); return true; }
+  if (p === '/api/sync' && m === 'POST') {
+    const corpo = await lerCorpo(req);
+    if (!corpo) { json(res, 400, { erro: 'JSON inválido' }); return true; }
+    const r = await sync.definir(corpo);
+    if (r.erros) { json(res, 400, { erro: 'valores inválidos', erros: r.erros }); return true; }
+    json(res, 200, { ok: true, mudancas: r.mudancas, ...sync.estado() });
+    return true;
+  }
+  if (p === '/api/sync/agora' && m === 'POST') {
+    if (!ctx.G) { naoPronto(); return true; }
+    const r = await sync.agora();
+    json(res, 200, { ok: true, ...r, ...sync.estado() });
+    return true;
+  }
+  if ((p === '/api/sync/exportar' || p === '/api/sync/importar') && m === 'POST') {
+    const corpo = (await lerCorpo(req)) || {};
+    try {
+      const r = p.endsWith('exportar') ? await sync.exportar(corpo.caminho) : await sync.importar(corpo.caminho);
+      json(res, 200, { ok: true, ...r });
+    } catch (e) { json(res, e.status || 500, { erro: e.message }); }
+    return true;
+  }
+  const mq = p.match(/^\/api\/sync\/maquinas\/([A-Za-z0-9-]+)$/);
+  if (mq && m === 'DELETE') {
+    if (await sync.esquecer(mq[1])) json(res, 200, { ok: true, ...sync.estado() });
+    else json(res, 404, { erro: 'máquina não encontrada' });
     return true;
   }
 

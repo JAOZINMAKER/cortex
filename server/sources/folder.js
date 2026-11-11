@@ -2,7 +2,7 @@
 // Fonte: pasta comum (documentos, roteiros, vídeos). Título, data, tamanho e trecho se for texto.
 const fs = require('fs');
 const path = require('path');
-const { sha1, normPath, contarPalavras, ehTexto } = require('../util');
+const { sha1, normPath, contarPalavras, ehTexto, slug } = require('../util');
 
 const MAX_PROF = 6;
 const MAX_ARQ = 5000;
@@ -48,7 +48,7 @@ async function ler(fonte) {
     if (!hash) hash = sha1(abs + ':' + st.size + ':' + st.mtimeMs).slice(0, 12);
     const birth = st.birthtimeMs && st.birthtimeMs > 0 ? Math.min(st.birthtimeMs, st.mtimeMs) : st.mtimeMs;
     nos.push({
-      chave: 'doc:' + normPath(abs), tipo: 'doc', fonte: 'pasta',
+      chave: `doc:${slug(fonte.projeto || path.basename(raiz))}:${path.basename(raiz).toLowerCase()}/${rel.toLowerCase()}`, chaveAntiga: 'doc:' + normPath(abs), tipo: 'doc', fonte: 'pasta',
       titulo: path.basename(abs), subregiao: rel.includes('/') ? rel.split('/')[0] : 'raiz',
       criado: birth, modificado: st.mtimeMs, palavras, autor: 'EU', hash, caminho: abs,
       texto: (path.basename(abs, ext).replace(/[_\-.]+/g, ' ') + '\n' + texto).slice(0, 4000),
