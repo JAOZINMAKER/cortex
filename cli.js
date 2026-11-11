@@ -251,7 +251,8 @@ C.resumo = async (pos, op) => {
   const q = new URLSearchParams();
   const proj = pos[0] || op.projeto;
   if (proj) q.set('projeto', proj);
-  if (op.dias) q.set('dias', String(op.dias));
+  if (op.tudo) q.set('dias', '0'); // todo o histórico
+  else if (op.dias) q.set('dias', String(op.dias));
   if (MODO_JSON) q.set('formato', 'json');
   const r = await api('GET', '/api/resumo?' + q.toString());
   if (MODO_JSON) return out(r.json ? JSON.stringify(r.json) : JSON.stringify({ texto: r.texto }));
@@ -304,12 +305,21 @@ C.no = async (pos, op) => {
   out(`região ${String(n.regiao).replace(/^r_/, '')}/${n.subregiao || '—'} · autor ${n.autor || '—'} · grau ${n.grau} · ${n.palavras} palavras`);
   out(`criado ${data(n.criado)} · modificado ${data(n.modificado)} · hash ${n.hash || '—'}`);
   if (n.caminho) out(`caminho ${n.caminho}`);
+  if (n.worktree) out(`worktree ${n.worktree}`);
+  const tagsAutor = n.tagsAutor || (d.conteudo && d.conteudo.tagsAutor) || [];
+  if (tagsAutor.length) out(`tags do autor: ${tagsAutor.join(', ')}`);
   const tags = (d.correcao && d.correcao.tags) || (d.maquina && d.maquina.tags) || n.tags || [];
-  if (tags.length) out(`tags da máquina: ${tags.join(', ')}`);
+  if (tags.length) out(`tags da máquina: ${tags.join(', ')}${d.correcao && d.correcao.tags ? ' (corrigidas pelo usuário)' : ''}`);
   const vz = (d.vizinhos || []).slice(0, 8);
   if (vz.length) { out('vizinhos:'); for (const v of vz) out(`  ${curto(v)}  ${corta(v.titulo, 60)}  (${typeof v.forca === 'number' ? v.forca.toFixed(2) : v.forca})`); }
   const c = d.conteudo || {};
-  if (c.corpo) { out('--- conteúdo ---'); out(corta(c.corpo, op.completo ? 1e9 : 1500).replace(/ (#{1,6} )/g, '\n$1')); }
+  if (c.corpo) {
+    // quebras de linha de verdade; texto gravado com "\n" literal (sem quebra real) também vira quebra
+    let corpo = String(c.corpo).replace(/\r\n/g, '\n');
+    if (!corpo.includes('\n') && corpo.includes('\\n')) corpo = corpo.replace(/\\n/g, '\n');
+    out('--- conteúdo ---');
+    out(op.completo || corpo.length <= 1500 ? corpo : corpo.slice(0, 1500).replace(/\n[^\n]*$/, '') + '\n…');
+  }
   if (!op.completo && c.corpo && c.corpo.length > 1500) out('(cortado; use --completo ou --json)');
 };
 
@@ -375,7 +385,9 @@ C.listar = async (pos, op) => {
   for (const x of itens.slice(0, lim)) {
     const t = x.modificado || x.criado || x.t;
     const proj_ = x.projeto || String(x.regiao || '').replace(/^r_/, '');
-    out(`${curto(x)}  ${data(t)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 64)}${proj_ ? '  · ' + proj_ : ''}${x.autor ? ' · ' + x.autor : ''}`);
+    out(`${curto(x)}  ${data(t)}  ${String(x.tipo || '').toUpperCase().padEnd(8)} ${corta(x.titulo, 64)}${proj_ ? '  · ' + proj_ : ''}${x.worktree ? ' · wt ' + x.worktree : ''}${x.autor ? ' · ' + x.autor : ''}`);
+    const ta = x.tagsAutor || [], tm = x.tags || [];
+    if (ta.length || tm.length) out(`        ${ta.length ? 'autor: #' + ta.join(' #') : ''}${ta.length && tm.length ? '   ' : ''}${tm.length ? 'máquina: ' + tm.join(', ') : ''}`);
   }
   const total = j.total ?? itens.length;
   if (total > lim) out(`(${total} no total; use --limite N)`);
@@ -390,6 +402,7 @@ C.registrar = async (pos, op) => {
   let texto = op.texto;
   if (op.arquivo) { try { texto = fs.readFileSync(String(op.arquivo), 'utf8'); } catch (e) { falhar(`não li ${op.arquivo}: ${e.message}`); } }
   if (texto === '-') texto = lerStdin(); // só lê a entrada padrão quando pedido: evita travar esperando um pipe
+  else if (typeof texto === 'string' && !op.arquivo && !texto.includes('\n')) texto = texto.replace(/\\n/g, '\n'); // "\n" digitado no shell vira quebra
   if (!projeto || projeto === true || !titulo || titulo === true || !texto || texto === true) {
     falhar('uso: cortex registrar --projeto X --titulo "..." --texto "..." [--tags a,b] [--ligar id1,id2] [--autor "CLAUDE CODE"]\n         (texto longo: --arquivo nota.md, ou --texto - lendo da entrada padrão)');
   }
@@ -460,7 +473,7 @@ const AJUDA = `CÓRTEX — segundo cérebro local (${BASE})
   cortex status [--esperar]           rodando? versão do grafo, projetos (--esperar: até ficar pronto)
   cortex abrir [projeto]              abre o navegador (já filtrado no projeto)
   cortex projetos                     lista os projetos e a atividade
-  cortex resumo [projeto] [--dias N]  resumo em markdown para ler como contexto
+  cortex resumo [projeto] [--dias N | --tudo]  resumo em markdown para ler como contexto
   cortex listar [--projeto X] [--desde 7d] [--tipos commit,sessao] [--fontes git] [--limite N]
   cortex buscar "<texto>" [--projeto X] (2+ caracteres)
   cortex no <id|título> [--completo]  id = idCurto (6), id longo (16) ou hash git

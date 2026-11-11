@@ -7,7 +7,7 @@ description: Usa o CÓRTEX, o segundo cérebro local do usuário (notas do Obsid
 
 O CÓRTEX é um app local do usuário, instalado em `{{CORTEX_DIR}}`. Ele lê as notas do Obsidian, os repositórios git, as sessões do Claude Code e as pastas do usuário e mostra tudo como um cérebro 3D no navegador. Você conversa com ele pelo comando `cortex`, que liga o servidor sozinho se precisar.
 
-**Como chamar:** use `cortex <comando>`. Se der "command not found" (o PATH só é atualizado depois de reiniciar o app), use sempre:
+**Como chamar:** use `cortex <comando>`. Se der "command not found", **não investigue**: passe direto e para o resto da tarefa ao fallback abaixo. No Windows, o PATH novo só vale em terminais (e no app do Claude) abertos depois da instalação.
 ```bash
 node "{{CORTEX_DIR}}/cli.js" <comando>
 ```
@@ -19,12 +19,15 @@ Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
    - Na primeira vez, o servidor liga e monta o grafo, o que leva de 10 a 60 s. O CLI espera sozinho e escreve "montando o cérebro… N s" no stderr. Isso é normal: **espere, não aborte**.
    - Todo comando que lê dados (resumo, listar, buscar, no, projetos, mostrar) também espera sozinho até o grafo ficar pronto.
    - Se o comando der erro de tempo, **rode o mesmo comando de novo**.
+   - A "versão do grafo" (`grafo v73`) sobe a cada mudança detectada nas fontes. Ela não importa: não comente nem compare.
    - Se falhar de verdade, diga ao usuário o erro exato e onde está o log (`{{CORTEX_DIR}}/data/servidor.log`). **Não invente dados do córtex.**
 2. **Descubra o projeto**, nesta ordem:
    1. o nome que o usuário disse ("projeto cortex" → `cortex`);
    2. a pasta atual: o nome da pasta do repositório. As pastas `gp-*` (gp-alce, gp-vfx...) são worktrees do **glass-pets**, então o projeto é `glass-pets`;
    3. `cortex projetos`, que lista os nomes exatos. Confirme ali quando houver dúvida.
-3. **Para "o que eu fiz" / contexto:**
+3. **Para "o que eu fiz", "o que tem sobre X" ou pedidos de contexto:**
+   - sem período ("o que tem sobre X", "me lembra do projeto X"): `cortex resumo X --tudo` (todo o histórico) e depois `cortex listar --projeto X`;
+   - com período ("essa semana", "hoje", "esse mês"): use `--dias`/`--desde`, como abaixo:
    - primeiro `cortex resumo <projeto> --dias 7`, que traz totais, últimos commits, sessões, notas mais conectadas e o diário;
    - depois complete com `cortex listar --projeto <projeto> --desde 7d`, que dá a lista cronológica com ids. Filtre com `--tipos commit,sessao,nota` ou `--fontes git,claude,obsidian,pasta,diario`.
    - Leia e resuma para o usuário, sem colar tudo.
@@ -33,13 +36,13 @@ Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
    - `cortex no <id>` mostra o conteúdo, os vizinhos, as tags da máquina e o caminho;
    - `--completo` mostra o texto inteiro.
    - `no` aceita o idCurto de 6, o id longo de 16 ou o hash git (curto ou longo).
-5. **Mostre para o usuário no cérebro:**
+5. **Mostre para o usuário no cérebro.** Quando o pedido diz "me mostra", "mostra" ou "quero ver", faça **as duas coisas**: responda em texto e rode `cortex mostrar ... --abrir`, para o cérebro abrir já filtrado. `cortex mostrar <projeto>` **isola** o projeto: só ele aparece e ocupa o cérebro inteiro, com as subpastas e worktrees virando os lobos.
    ```bash
    cortex mostrar glass-pets                         # só o projeto glass-pets
    cortex mostrar glass-pets --desde 7d              # só o que mudou na última semana
    cortex mostrar glass-pets --fontes git,claude     # só commits e sessões
    cortex mostrar tudo --tipos nota --tags ROTEIRO   # todas as notas com a tag ROTEIRO
-   cortex mostrar cortex --desde 7d --abrir          # aplica e abre o navegador nessa visão
+   cortex mostrar cortex --desde 7d --abrir          # aplica e abre o navegador nessa visão (use em "me mostra")
    cortex mostrar tudo                               # volta ao cérebro inteiro
    ```
    - Se a saída disser que **nenhuma janela está aberta** (`janelas: 0`), ninguém está olhando. Ofereça ao usuário `cortex abrir <projeto> --desde 7d`, ou rode com `--abrir` se ele já pediu para ver.
@@ -66,7 +69,9 @@ Todo comando aceita `--json`, que é melhor quando você vai processar a saída.
 ## Como citar e o que contar
 
 - **Ids:** cite o **idCurto de 6 caracteres** (ex.: `a3f91c`). É o que o CLI mostra primeiro e o que o usuário acha no app com Ctrl+K.
-- **Sessões de agentes** (autor "AGENTE …" ou subagentes) contam como trabalho de IA do usuário. **Não** mencione as sessões de teste nem a sessão da tarefa atual (inclusive esta, que está consultando o córtex): elas são meta, não trabalho do usuário.
+- **Sessões de agentes** (autor "AGENTE …" ou subagentes) contam como trabalho de IA do usuário.
+- **Ignore na resposta** o que é meta ou teste: a sessão da tarefa atual (inclusive esta, que está consultando o córtex) e sessões ou notas de diário com "teste" no título. Isso não é trabalho do usuário.
+- **Tags:** `no` e `listar` mostram as **tags do autor** (escritas pelo usuário na nota) separadas das **tags da máquina** (classificação automática). Quando falar de tema, dê preferência às tags do autor. O worktree (`wt gp-alce`) aparece quando houver.
 - Resuma em português, por tema (o que foi construído, corrigido, decidido) e não commit por commit, com números quando ajudar.
 
 ## Regras
@@ -83,7 +88,7 @@ cortex status --esperar
 cortex projetos                          # confirma o nome exato de X
 cortex resumo X --dias 7                 # visão geral
 cortex listar --projeto X --desde 7d     # lista cronológica com ids
-cortex mostrar X --desde 7d              # se disser "nenhuma janela aberta": cortex abrir X --desde 7d
+cortex mostrar X --desde 7d --abrir      # "me mostra" = texto + cérebro aberto nesse recorte
 cortex registrar --projeto X --titulo "Revisão semanal de X" --tags REVISAO --texto "Revisei o que mudou em X nos últimos 7 dias: <resumo em 2-3 linhas>"
 ```
 Depois responda com um resumo curto do que foi feito, por tema e com os idCurto principais. Diga se o cérebro está mostrando a semana do projeto (ou passe o link/comando para abrir) e cite o id da revisão registrada.
@@ -95,7 +100,7 @@ Depois responda com um resumo curto do que foi feito, por tema e com os idCurto 
 | `cortex status [--esperar]` | rodando? versão do grafo, projetos |
 | `cortex abrir [projeto] [filtros]` | abre o navegador já na visão (`?visao=id`) |
 | `cortex projetos` | projetos com neurônios, notas, commits, sessões e último pulso |
-| `cortex resumo [projeto] [--dias N] [--json]` | markdown curto; `--json` estruturado |
+| `cortex resumo [projeto] [--dias N \| --tudo] [--json]` | markdown curto; `--tudo` = todo o histórico; `--json` estruturado |
 | `cortex listar [--projeto X] [--desde 7d] [--tipos ...] [--fontes ...] [--limite N]` | lista cronológica |
 | `cortex buscar "texto" [--projeto X] [--limite N]` | busca em títulos e textos |
 | `cortex no <id\|título> [--completo]` | um neurônio |
